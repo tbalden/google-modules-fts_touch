@@ -112,7 +112,6 @@ struct fts_ts_info {
 				 * indicate if active or lpm) */
 	struct notifier_block notifier;	/* /< Used for be notified from a
 					 * suspend/resume event */
-	struct wakeup_source wakesrc;	/* Wake Lock struct */
 	unsigned long touch_id;	/* /< Bitmask for touch id (mapped to input
 				 * slots) */
 	bool sensor_sleep;	/* /< if true suspend was called while if false

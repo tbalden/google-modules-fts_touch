@@ -1207,7 +1207,7 @@ int flash_burn(struct firmware_file fw, struct force_update_flag *force_burn)
   */
 int full_panel_init(struct force_update_flag *force_update)
 {
-	int res;
+	int res = OK;
 	int event_to_search = EVT_ID_NOEVENT;
 	u8 read_data[8] = { 0x00 };
 

@@ -279,7 +279,7 @@ static void fts_event_handler(struct work_struct *work)
 	event_dispatch_handler_t event_handler;
 
 	info = container_of(work, struct fts_ts_info, work);
-	__pm_wakeup_event(&info->wakesrc, jiffies_to_msecs(HZ));
+	pm_wakeup_event(info->dev, jiffies_to_msecs(HZ));
 	for (count = 0; count < MAX_FIFO_EVENT; count++) {
 		error = fts_read_fw_reg(FIFO_READ_ADDR, data, 8);
 		if (error == OK && data[0] != EVT_ID_NOEVENT)
@@ -557,7 +557,7 @@ static void fts_resume_work(struct work_struct *work)
 	struct fts_ts_info *info;
 
 	info = container_of(work, struct fts_ts_info, resume_work);
-	__pm_wakeup_event(&info->wakesrc, jiffies_to_msecs(HZ));
+	pm_wakeup_event(info->dev, jiffies_to_msecs(HZ));
 	info->resume_bit = 1;
 	fts_disable_interrupt();
 	fts_system_reset(1);
@@ -576,7 +576,7 @@ static void fts_suspend_work(struct work_struct *work)
 	struct fts_ts_info *info;
 
 	info = container_of(work, struct fts_ts_info, suspend_work);
-	__pm_wakeup_event(&info->wakesrc, jiffies_to_msecs(HZ));
+	pm_wakeup_event(info->dev, jiffies_to_msecs(HZ));
 	info->resume_bit = 0;
 	fts_mode_handler(info, 0);
 	release_all_touches(info);
@@ -979,7 +979,6 @@ static int parse_dt(struct device *dev, struct fts_hw_platform_data *bdata)
 
 	log_info(1, "%s: irq_gpio = %d\n", __func__, bdata->irq_gpio);
 
-
 	ret_val = of_property_read_string(np, "st,regulator_dvdd", &name);
 	if (ret_val == -EINVAL)
 		bdata->vdd_reg_name = NULL;
@@ -1120,13 +1119,12 @@ static int fts_probe(struct spi_device *client)
 	info->dev = &info->client->dev;
 
 	log_info(1, "%s: SET Event Handler:\n", __func__);
-	wakeup_source_init(&info->wakesrc, "fts_tp");
 	info->event_wq = alloc_workqueue("fts-event-queue", WQ_UNBOUND |
 					 WQ_HIGHPRI | WQ_CPU_INTENSIVE, 1);
 	if (!info->event_wq) {
 		log_info(1, "%s: ERROR: Cannot create work thread\n", __func__);
 		error = -ENOMEM;
-		goto probe_error_exit_3;
+		goto probe_error_exit_2;
 	}
 	INIT_WORK(&info->work, fts_event_handler);
 	INIT_WORK(&info->resume_work, fts_resume_work);
@@ -1227,9 +1225,6 @@ probe_error_exit_5:
 probe_error_exit_4:
 	destroy_workqueue(info->event_wq);
 
-probe_error_exit_3:
-	wakeup_source_trash(&info->wakesrc);
-
 probe_error_exit_2:
 	fts_enable_reg(info, false);
 	fts_get_reg(info, false);
@@ -1261,7 +1256,6 @@ static int fts_remove(struct spi_device *client)
 	fb_unregister_client(&info->notifier);
 	input_unregister_device(info->input_dev);
 	destroy_workqueue(info->event_wq);
-	wakeup_source_trash(&info->wakesrc);
 #ifndef FW_UPDATE_ON_PROBE
 	destroy_workqueue(info->fwu_workqueue);
 #endif

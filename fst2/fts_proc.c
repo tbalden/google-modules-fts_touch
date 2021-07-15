@@ -344,7 +344,7 @@ static ssize_t fts_seq_write(struct file *file, const char __user *buf,
 		res = ERROR_ALLOC;
 		goto goto_end;
 	}
-	if (access_ok(VERIFY_READ, buf, count) < OK ||
+	if (access_ok(buf, count) < OK ||
 		copy_from_user(pbuf, buf, count) != 0) {
 		res = ERROR_ALLOC;
 		goto goto_end;
@@ -1031,14 +1031,12 @@ static ssize_t fts_seq_write(struct file *file, const char __user *buf,
   * file_operations struct which define the functions for the canonical
   *operation on a device file node (open. read, write etc.)
   */
-
-
-static const struct file_operations fts_driver_test_ops = {
-	.open = fts_open,
-	.read = seq_read,
-	.write = fts_seq_write,
-	.llseek = seq_lseek,
-	.release = seq_release
+static const struct proc_ops fts_driver_test_ops = {
+	.proc_open = fts_open,
+	.proc_read = seq_read,
+	.proc_write = fts_seq_write,
+	.proc_lseek = seq_lseek,
+	.proc_release = seq_release
 };
 
 /**
