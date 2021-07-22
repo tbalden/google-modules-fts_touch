@@ -1033,7 +1033,6 @@ static int fts_probe(struct spi_device *client)
 #ifndef SPI4_WIRE
 	client->mode |= SPI_3WIRE;
 #endif
-	client->max_speed_hz = SPI_CLOCK_FREQ;
 	client->bits_per_word = 8;
 	if (spi_setup(client) < 0) {
 		log_info(1, "%s: Unsupported SPI functionality\n", __func__);
@@ -1244,7 +1243,7 @@ static int fts_remove(struct spi_device *client)
 
 static struct of_device_id fts_of_match_table[] = {
 	{
-		.compatible = "st,fts",
+		.compatible = "st,fst2",
 	},
 	{},
 };

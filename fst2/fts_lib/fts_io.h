@@ -27,8 +27,6 @@
 #else
 #define SPI4_WIRE	/* /< comment if the master is SPI3 wires
 			 *  (MOSI and MISO share same line) */
-#define SPI_CLOCK_FREQ			7000000	/* /< clock frequency in Hz of
-						 * the SPI bus */
 #define SPI_DELAY_CS			10	/* /< time in usec to wait
 						 * before rising the CS */
 #define DUMMY_BYTE			1 /* /< first byte read is Dummy byte */

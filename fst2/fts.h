@@ -22,7 +22,7 @@
 #include <linux/device.h>
 #include "fts_lib/fts_io.h"
 
-#define FTS_TS_DRV_NAME		"fts"
+#define FTS_TS_DRV_NAME		"fst2"
 #define FTS_TS_DRV_VERSION	"6.0.3"
 #define FTS_TS_DRV_VER		0x06000003
 
