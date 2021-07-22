@@ -230,16 +230,33 @@ int check_limits_map_total(short *data, int row, int column,
 void print_frame_i8(char *label, i8 **matrix, int row, int column)
 {
 	int i, j;
+	int buff_len, index;
+	char *buff;
 
-	log_info(1, "%s\n", label);
+	pr_info("%s\n", label);
+
+	if (matrix == NULL)
+		return;
+
+	buff_len = (4 + 1) * column + 1; /* -128 str len: 4 */
+	buff = kzalloc(buff_len, GFP_KERNEL);
+	if (buff == NULL) {
+		pr_err("%s: fail to allocate buffer\n", __func__);
+		return;
+	}
+
 	for (i = 0; i < row; i++) {
-		printk("[ FTS ] ");
+		if (!matrix[i])
+			break;
+		index = 0;
 		for (j = 0; j < column; j++)
-			printk("%d ", matrix[i][j]);
-		printk("\n");
+			index += scnprintf(buff + index, buff_len - index,
+					"%d ", matrix[i][j]);
+		pr_info("%s\n", buff);
 		kfree(matrix[i]);
 	}
 	kfree(matrix);
+	kfree(buff);
 }
 
 /**
@@ -253,19 +270,38 @@ void print_frame_i8(char *label, i8 **matrix, int row, int column)
 void print_frame_short(char *label, short **matrix, int row, int column)
 {
 	int i, j;
+	int buff_len, index;
+	char *buff;
 
-	log_info(1, "%s\n", label);
-	for (i = 0; i < row; i++) {
-		printk("[ FTS ] ");
-		for (j = 0; j < column; j++)
-			printk("%d ", matrix[i][j]);
-		printk("\n");
+	pr_info("%s\n", label);
+
+	if (matrix == NULL)
+		return;
+
+	buff_len = (6 + 1) * column + 1; /* -32768 str len: 6 */
+	buff = kzalloc(buff_len, GFP_KERNEL);
+	if (buff == NULL) {
+		pr_err("%s: fail to allocate buffer\n", __func__);
+		return;
 	}
+
+	for (i = 0; i < row; i++) {
+		if (!matrix[i])
+			break;
+		index = 0;
+		for (j = 0; j < column; j++)
+			index += scnprintf(buff + index, buff_len - index,
+					"%d ", matrix[i][j]);
+		pr_info("%s\n", buff);
+		kfree(matrix[i]);
+	}
+	kfree(matrix);
+	kfree(buff);
 }
 
 /**
   * Print in the kernel log a label followed by a matrix of u16 row x columns
-  *and free its memory
+  * and free its memory
   * @param label pointer to the string to print before the actual matrix
   * @param matrix reference to the matrix of u16 which contain the actual data
   * @param row number of rows on which the matrix should be print
@@ -274,16 +310,33 @@ void print_frame_short(char *label, short **matrix, int row, int column)
 void print_frame_u16(char *label, u16 **matrix, int row, int column)
 {
 	int i, j;
+	int buff_len, index;
+	char *buff;
 
-	log_info(1, "%s\n", label);
+	pr_info("%s\n", label);
+
+	if (matrix == NULL)
+		return;
+
+	buff_len = (5 + 1) * column + 1; /* 65535 str len: 5 */
+	buff = kzalloc(buff_len, GFP_KERNEL);
+	if (buff == NULL) {
+		pr_err("%s: fail to allocate buffer\n", __func__);
+		return;
+	}
+
 	for (i = 0; i < row; i++) {
-		printk("[ FTS ] ");
+		if (!matrix[i])
+			break;
+		index = 0;
 		for (j = 0; j < column; j++)
-			printk("%d ", matrix[i][j]);
-		printk("\n");
+			index += scnprintf(buff + index, buff_len - index,
+					"%d ", matrix[i][j]);
+		pr_info("%s\n", buff);
 		kfree(matrix[i]);
 	}
 	kfree(matrix);
+	kfree(buff);
 }
 
 /**

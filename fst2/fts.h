@@ -53,7 +53,7 @@
 
 
 
-#define DEBUG
+//#define DEBUG
 
 /* Touch Types */
 #define TOUCH_TYPE_FINGER_HOVER		0x00
