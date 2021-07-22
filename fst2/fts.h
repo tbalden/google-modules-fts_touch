@@ -77,11 +77,8 @@ typedef void (*event_dispatch_handler_t)
   */
 struct fts_hw_platform_data {
 	int (*power)(bool on);
-	int irq_gpio;	/* /< number of the gpio associated to the interrupt pin
-			 * */
-	int reset_gpio;	/* /< number of the gpio associated to the reset pin */
-	const char *vdd_reg_name;	/* /< name of the VDD regulator */
-	const char *avdd_reg_name;	/* /< name of the AVDD regulator */
+	int irq_gpio;
+	int reset_gpio;
 };
 /**
   * Struct contains FTS capacitive touch screen device information

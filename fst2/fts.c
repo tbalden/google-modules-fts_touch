@@ -787,30 +787,29 @@ static int fts_init(struct fts_ts_info *info)
 static int fts_get_reg(struct fts_ts_info *info, bool get)
 {
 	int ret_val;
-	const struct fts_hw_platform_data *bdata = info->board;
 
 	if (!get) {
 		ret_val = 0;
 		goto regulator_put;
 	}
 
-	if ((bdata->vdd_reg_name != NULL) && (*bdata->vdd_reg_name != 0)) {
-		info->vdd_reg = regulator_get(info->dev, bdata->vdd_reg_name);
+	if (of_property_read_bool(info->dev->of_node, "vdd-supply")) {
+		info->vdd_reg = regulator_get(info->dev, "vdd");
 		if (IS_ERR(info->vdd_reg)) {
 			log_info(1, "%s: Failed to get power regulator\n",
 				 __func__);
-			ret_val = PTR_ERR(info->vdd_reg);
+			ret_val = -EPROBE_DEFER;
 			goto regulator_put;
 		}
 	}
 
-	if ((bdata->avdd_reg_name != NULL) && (*bdata->avdd_reg_name != 0)) {
-		info->avdd_reg = regulator_get(info->dev, bdata->avdd_reg_name);
+	if (of_property_read_bool(info->dev->of_node, "avdd-supply")) {
+		info->avdd_reg = regulator_get(info->dev, "avdd");
 		if (IS_ERR(info->avdd_reg)) {
 			log_info(1,
 				 "%s: Failed to get bus pullup regulator\n",
 				 __func__);
-			ret_val = PTR_ERR(info->avdd_reg);
+			ret_val = -EPROBE_DEFER;
 			goto regulator_put;
 		}
 	}
@@ -971,33 +970,11 @@ err_gpio_irq:
   */
 static int parse_dt(struct device *dev, struct fts_hw_platform_data *bdata)
 {
-	int ret_val;
-	const char *name;
 	struct device_node *np = dev->of_node;
 
 	bdata->irq_gpio = of_get_named_gpio_flags(np, "st,irq-gpio", 0, NULL);
 
 	log_info(1, "%s: irq_gpio = %d\n", __func__, bdata->irq_gpio);
-
-	ret_val = of_property_read_string(np, "st,regulator_dvdd", &name);
-	if (ret_val == -EINVAL)
-		bdata->vdd_reg_name = NULL;
-	else if (ret_val < 0)
-		return ret_val;
-	else {
-		bdata->vdd_reg_name = name;
-		log_info(1, "%s: pwr_reg_name = %s\n", __func__, name);
-	}
-
-	ret_val = of_property_read_string(np, "st,regulator_avdd", &name);
-	if (ret_val == -EINVAL)
-		bdata->avdd_reg_name = NULL;
-	else if (ret_val < 0)
-		return ret_val;
-	else {
-		bdata->avdd_reg_name = name;
-		log_info(1, "%s: bus_reg_name = %s\n", __func__, name);
-	}
 
 	if (of_property_read_bool(np, "st,reset-gpio")) {
 		bdata->reset_gpio = of_get_named_gpio_flags(np,
@@ -1094,8 +1071,8 @@ static int fts_probe(struct spi_device *client)
 	}
 
 	log_info(1, "%s: SET Regulators:\n", __func__);
-	ret_val = fts_get_reg(info, true);
-	if (ret_val < 0) {
+	error = fts_get_reg(info, true);
+	if (error < 0) {
 		log_info(1, "%s: ERROR:Failed to get regulators\n",
 			 __func__);
 		goto probe_error_exit_1;
