@@ -6168,6 +6168,8 @@ static int parse_dt(struct device *dev, struct fts_hw_platform_data *bdata)
 	u32 coords[2];
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
 	u8 offload_id[4];
+
+	struct fts_ts_info *info = dev_get_drvdata(dev);
 #endif
 
 	if (of_property_read_u8_array(np, "st,dchip_id", bdata->dchip_id, 2)) {
@@ -6304,8 +6306,16 @@ static int parse_dt(struct device *dev, struct fts_hw_platform_data *bdata)
 	bdata->device_name = NULL;
 	of_property_read_string(np, "st,device_name",
 				&bdata->device_name);
-	if(!bdata->device_name)
+	if(!bdata->device_name) {
 		bdata->device_name = FTS_TS_DRV_NAME;
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
+		scnprintf(info->offload.device_name, 32, "touch_offload");
+	} else {
+		scnprintf(info->offload.device_name, 32, "touch_offload_%s",
+			  info->board->device_name);
+		info->offload.multiple_panels = true;
+#endif
+	}
 	dev_info(dev, "device_name = %s\n", bdata->device_name);
 
 	if (of_property_read_u8(np, "st,grip_area", &bdata->fw_grip_area))
