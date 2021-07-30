@@ -21,6 +21,7 @@
 
 #include <linux/device.h>
 #include "fts_lib/fts_io.h"
+#include <drm/drm_bridge.h>
 
 #define FTS_TS_DRV_NAME		"fst2"
 #define FTS_TS_DRV_VERSION	"6.0.3"
@@ -79,6 +80,7 @@ struct fts_hw_platform_data {
 	int (*power)(bool on);
 	int irq_gpio;
 	int reset_gpio;
+	struct drm_panel *panel;
 };
 /**
   * Struct contains FTS capacitive touch screen device information
@@ -107,8 +109,9 @@ struct fts_ts_info {
 	int resume_bit;	/* /< Indicate if screen off/on */
 	unsigned int mode;	/* /< Device operating mode (bitmask: msb
 				 * indicate if active or lpm) */
-	struct notifier_block notifier;	/* /< Used for be notified from a
-					 * suspend/resume event */
+	struct drm_bridge panel_bridge;
+	struct drm_connector *connector;
+	bool is_panel_lp_mode;
 	unsigned long touch_id;	/* /< Bitmask for touch id (mapped to input
 				 * slots) */
 	bool sensor_sleep;	/* /< if true suspend was called while if false
