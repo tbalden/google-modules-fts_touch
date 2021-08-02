@@ -30,9 +30,9 @@
 #define MAX_FIFO_EVENT	100
 
 /* **** PANEL SPECIFICATION **** */
-#define X_AXIS_MAX	1440	/* /< Max X coordinate of the display */
+#define X_AXIS_MAX	2207	/* /< Max X coordinate of the display */
 #define X_AXIS_MIN	0	/* /< min X coordinate of the display */
-#define Y_AXIS_MAX	2959	/* /< Max Y coordinate of the display */
+#define Y_AXIS_MAX	1839	/* /< Max Y coordinate of the display */
 #define Y_AXIS_MIN	0	/* /< min Y coordinate of the display */
 
 #define PRESSURE_MIN	0	/* /< min value of pressure reported */
