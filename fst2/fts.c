@@ -718,12 +718,20 @@ static void unregister_panel_bridge(struct drm_bridge *bridge)
 static int fts_init_sensing(struct fts_ts_info *info)
 {
 	int error = 0;
+	int add = 0x001C;
+	uint8_t int_data = 0x01;
+	int res = 0;
 
 	error |= register_panel_bridge(info);
 	error |= fts_interrupt_install(info);
 	log_info(1, "%s: Sensing on..\n", __func__);
 	error |= fts_mode_handler(info, 0);
 	error |= fts_reset_disable_irq_count();
+
+	res = fts_write_fw_reg(add, &int_data, 1);
+	if (res < OK) {
+		log_info(1, "%s ERROR %08X\n", __func__, res);
+	}
 
 	if (error < OK)
 		log_info(1, "%s: Init error (ERROR = %08X)\n",

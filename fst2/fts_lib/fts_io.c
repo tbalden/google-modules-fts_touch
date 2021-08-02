@@ -905,6 +905,8 @@ int fts_system_reset(int poll_event)
 	u8 data = SYSTEM_RESET_VAL;
 	int event_to_search = EVT_ID_CONTROLLER_READY;
 	u8 read_data[8] = { 0x00 };
+	int add = 0x001C;
+	uint8_t int_data = 0x01;
 
 	if (reset_gpio == GPIO_NOT_DEFINED) {
 		res = fts_write_u8ux(FTS_CMD_HW_REG_W, BITS_32, SYS_RST_ADDR,
@@ -927,6 +929,11 @@ int fts_system_reset(int poll_event)
 			log_info(1, "%s ERROR %08X\n", __func__, res);
 	} else
 		msleep(100);
+
+	res = fts_write_fw_reg(add, &int_data, 1);
+	if (res < OK) {
+		log_info(1, "%s ERROR %08X\n", __func__, res);
+	}
 
 	return res;
 }
