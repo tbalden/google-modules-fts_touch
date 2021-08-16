@@ -104,8 +104,9 @@ cat /proc/fts/driver_test ==> cx type to be referred from FW API */
 /*!<  usage: echo 11 ss_cx_type > /proc/fts/driver_test;
 cat /proc/fts/driver_test ==> cx type to be referred from FW API */
 #define CMD_MAINTEST				0x12
-/*!<  usage: echo 12 00/01 > /proc/fts/driver_test; cat /proc/fts/driver_test
-to enable/disable full panel init*/
+/*!<  usage: echo 12 00/01  00/01> /proc/fts/driver_test; cat
+ /proc/fts/driver_test , to enable/disable full panel init and  enable/disable
+ test flow stop at first error*/
 #define CMD_ITOTEST				0x13
 /*!<  usage: echo 13 > /proc/fts/driver_test; cat /proc/fts/driver_test */
 #define CMD_MUTUALRAWTEST			0x14
@@ -125,7 +126,8 @@ to enable/disable full panel init*/
 /*!<  usage: echo 1A hdm type > /proc/fts/driver_test; cat /proc/fts/driver_test
 ==> hdm type is the type of the host data memory to be loaded */
 #define CMD_MUTUALTOTCXLPTEST		0x1B
-/*!<usage: echo 1B > /proc/fts/driver_test; cat /proc/fts/driver_test */
+/*!<usage: echo 1B 00/01> /proc/fts/driver_test; cat /proc/fts/driver_test
+enable/disable test flow stop at first error*/
 #define CMD_SELFTOTIXTEST			0x1C
 /*!<usage: echo 1C > /proc/fts/driver_test; cat /proc/fts/driver_test */
 #define CMD_SELFTOTIXDETECTTEST		0x1D
@@ -136,7 +138,11 @@ cat /proc/fts/driver_test ==> cx type to be referred from FW API */
 #define CMD_READSSTOTALIXDATA			0x1F
 /*!<usage: echo 1F ss_total_ix_type > /proc/fts/driver_test;
 cat /proc/fts/driver_test ==> ix type to be referred from FW API */
-
+#define CMD_FWWRITEAUTOCLEAR			0x20
+/*!<usage: echo 20 00 22 01 0F 00> /proc/fts/driver_test;
+cat /proc/fts/driver_test ==>  this api shall write 1 and will
+be auto cleared with a time out when command is completed ,
+< cmdid , 2bytes fw reg address , 1byte bitset position, 2bytes timeout in ms */
 /**@}*/
 
 
@@ -740,9 +746,9 @@ static ssize_t fts_seq_write(struct file *file, const char __user *buf,
 			}
 			break;
 		case CMD_MAINTEST:
-			if (number_param == 2) {
+			if (number_param == 3) {
 				res = fts_production_test_main(LIMITS_FILE,
-							&tests, cmd[1]);
+						 cmd[2], &tests, cmd[1]);
 				if (res < OK)
 					log_info(1,
 					"%s: Error running production tests: %08X\n",
@@ -867,9 +873,9 @@ static ssize_t fts_seq_write(struct file *file, const char __user *buf,
 			}
 			break;
 		case CMD_MUTUALTOTCXLPTEST:
-			if (number_param == 1) {
+			if (number_param == 2) {
 				res = fts_production_test_ms_cx_lp(LIMITS_FILE,
-								&tests);
+								cmd[1], &tests);
 				if (res < OK)
 					log_info(1, "%s: Error running production tests: %08X\n",
 					__func__, res);
@@ -959,6 +965,20 @@ static ssize_t fts_seq_write(struct file *file, const char __user *buf,
 				res = ERROR_OP_NOT_ALLOW;
 			}
 			break;
+		case CMD_FWWRITEAUTOCLEAR:
+			if (number_param == 6)
+				res = fts_fw_request(
+						(u16)(((cmd[1] & 0x00FF) << 8)+
+						(cmd[2] & 0x00FF)), cmd[3], 1,
+						(int)((((cmd[4] & 0x00FF) << 8)+
+						(cmd[5] & 0x00FF))/10));
+			/*(actual time out in API is x10(multiple) of input)*/
+			else {
+				log_info(1, "%s: wrong number of parameters\n",
+					__func__);
+				res = ERROR_OP_NOT_ALLOW;
+			}
+			break;
 		default:
 			log_info(1, "%s: COMMAND ID NOT VALID!!!\n", __func__);
 			res = ERROR_OP_NOT_ALLOW;
@@ -984,7 +1004,6 @@ static ssize_t fts_seq_write(struct file *file, const char __user *buf,
 		switch (func_to_test[0]) {
 		case CMD_DRIVER_VERSION:
 		case CMD_WRITEREAD:
-		case CMD_WRITEREADU8UX:
 		case CMD_FWREGREAD:
 		case CMD_READFIFOEVENT:
 			if (dummy == 1)

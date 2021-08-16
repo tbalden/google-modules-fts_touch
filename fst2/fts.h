@@ -25,9 +25,10 @@
 
 #define FTS_TS_DRV_NAME		"fst2"
 #define FTS_TS_DRV_VERSION	"6.0.3"
-#define FTS_TS_DRV_VER		0x06000003
+#define FTS_TS_DRV_VER		0x06000004
 
-#define MAX_FIFO_EVENT	100
+#define MAX_FIFO_EVENT	100 /* /< max number of events that the FIFO can
+				 * collect  */
 
 /* **** PANEL SPECIFICATION **** */
 #define X_AXIS_MAX	2207	/* /< Max X coordinate of the display */
@@ -45,6 +46,8 @@
 
 #define TOUCH_ID_MAX	10	/* /< Max number of simoultaneous touches
 				 * reported */
+#define PEN_ID_MAX		4	/* /< Max number of simoultaneous pen
+				 * touches reported */
 
 #define AREA_MIN	PRESSURE_MIN	/* /< min value of Major/minor axis
 					 * reported */
@@ -57,10 +60,10 @@
 //#define DEBUG
 
 /* Touch Types */
-#define TOUCH_TYPE_FINGER_HOVER		0x00
+#define TOUCH_TYPE_FINGER_HOVER		0x00	/* /< Finger hover */
 #define TOUCH_TYPE_FINGER			0x01	/* /< Finger touch */
 #define TOUCH_TYPE_GLOVE			0x02	/* /< Glove touch */
-#define TOUCH_TYPE_LARGE			0x03
+#define TOUCH_TYPE_LARGE			0x03	/* /< Large touch */
 
 /*
   * Forward declaration

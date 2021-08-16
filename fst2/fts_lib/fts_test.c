@@ -1697,10 +1697,13 @@ goto_error:
   * Init data (touch, keys etc..)
   * @param path_limits name of Production Limit file to load or
   * "NULL" if the limits data should be loaded by a .h file
+  * @param stop_on_fail if 1, the test flow stops at the first data check
+  * failure
   * @param tests pointer to a test_to_do variable which select the test to do
   * @return OK if success or an error code which specify the type of error
   */
-int fts_production_test_ms_cx_lp(char *path_limits, struct test_to_do *tests)
+int fts_production_test_ms_cx_lp(char *path_limits, int stop_on_fail,
+				    struct test_to_do *tests)
 {
 	int res = OK;
 	struct mutual_total_cx_data ms_cx_data;
@@ -1776,6 +1779,8 @@ int fts_production_test_ms_cx_lp(char *path_limits, struct test_to_do *tests)
 					__func__);
 				res = (ERROR_PROD_TEST_CX |
 					 ERROR_PROD_TEST_CHECK_FAIL);
+				if (stop_on_fail == 1)
+					goto goto_error;
 			} else {
 				log_info(1, "%s: MS TOTAL CX LP MIN MAX TEST:.................OK\n",
 					__func__);
@@ -1833,7 +1838,8 @@ int fts_production_test_ms_cx_lp(char *path_limits, struct test_to_do *tests)
 					__func__);
 				res = (ERROR_PROD_TEST_CX |
 					 ERROR_PROD_TEST_CHECK_FAIL);
-				goto goto_error;
+				if (stop_on_fail == 1)
+					goto goto_error;
 			} else
 				log_info(1,
 					"%s: MS TOTAL CX LP ADJ HORIZONTAL TEST:.................OK\n",
@@ -1886,7 +1892,8 @@ int fts_production_test_ms_cx_lp(char *path_limits, struct test_to_do *tests)
 					__func__);
 				res = (ERROR_PROD_TEST_CX |
 					ERROR_PROD_TEST_CHECK_FAIL);
-				goto goto_error;
+				if (stop_on_fail == 1)
+					goto goto_error;
 			} else
 				log_info(1,
 					"%s: MS TOTAL CX LP ADJ VERTICAL TEST:.................OK\n",
@@ -2288,13 +2295,15 @@ goto_error:
   * Perform a FULL (ITO + INIT + DATA CHECK) Mass Production Test of the IC
   * @param path_limits name of Production Limit file to load or
   * "NULL" if the limits data should be loaded by a .h file
+  * @param stop_on_fail if 1, the test flow stops at the first data check
+  * failure, except ITO test which will always stop for error
   * @param do_init flag variable to decide on full panel initialisation
   * the Initialization of the IC is executed otherwise it is skipped
   * @param tests pointer to a test_to_do variable which select the test to do
   * @return OK if success or an error code which specify the type of error
   */
-int fts_production_test_main(char *path_limits, struct test_to_do *tests,
-				int do_init)
+int fts_production_test_main(char *path_limits, int stop_on_fail,
+				struct test_to_do *tests, int do_init)
 {
 	int res = OK;
 
@@ -2312,7 +2321,8 @@ int fts_production_test_main(char *path_limits, struct test_to_do *tests,
 			log_info(1, "%s: Error performing autotune.. %08X\n",
 				__func__, res);
 			res |= ERROR_INIT;
-			goto goto_error;
+			if (stop_on_fail)
+				goto goto_error;
 		}
 		log_info(1, "%s: Initialization done...\n", __func__);
 	}
@@ -2320,43 +2330,50 @@ int fts_production_test_main(char *path_limits, struct test_to_do *tests,
 	res = fts_production_test_ms_raw(path_limits, tests);
 	if (res != OK) {
 		log_info(1, "%s: MUTUAL RAW TEST FAIL\n", __func__);
-		goto goto_error;
+		if (stop_on_fail)
+			goto goto_error;
 	}
 	log_info(1, "%s: [3]LOW POWER MUTUAL RAW Test......\n", __func__);
 	res = fts_production_test_ms_raw_lp(path_limits, tests);
 	if (res != OK) {
 		log_info(1, "%s: LOW POWER MUTUAL RAW TEST FAIL\n", __func__);
-		goto goto_error;
+		if (stop_on_fail)
+			goto goto_error;
 	}
 	log_info(1, "%s: [4]SELF RAW TEST...\n", __func__);
 	res = fts_production_test_ss_raw(path_limits, tests);
 	if (res != OK) {
 		log_info(1, "%s: SELF RAW TEST FAIL\n", __func__);
-		goto goto_error;
+		if (stop_on_fail)
+			goto goto_error;
 	}
 	log_info(1, "%s: [5]LOW POWER SELF RAW TEST......\n", __func__);
 	res = fts_production_test_ss_raw_lp(path_limits, tests);
 	if (res != OK) {
 		log_info(1, "%s: LOW POWER SELF RAW TEST FAIL\n", __func__);
-		goto goto_error;
+		if (stop_on_fail)
+			goto goto_error;
 	}
 	log_info(1, "%s: [6]MUTUAL CX LOW POWER TEST......\n", __func__);
-	res = fts_production_test_ms_cx_lp(path_limits, tests);
+	res = fts_production_test_ms_cx_lp(path_limits, stop_on_fail, tests);
 	if (res != OK) {
 		log_info(1, "%s: MUTUAL CX LOW POWER TEST FAIL\n", __func__);
-		goto goto_error;
+		if (stop_on_fail)
+			goto goto_error;
 	}
 	log_info(1, "%s: [7]SELF IX TEST......\n", __func__);
 	res = fts_production_test_ss_ix(path_limits, tests);
 	if (res != OK) {
 		log_info(1, "%s: SELF IX TEST FAIL\n", __func__);
-		goto goto_error;
+		if (stop_on_fail)
+			goto goto_error;
 	}
 	log_info(1, "%s: [8]SELF IX DETECT TEST......\n", __func__);
 	res = fts_production_test_ss_ix_lp(path_limits, tests);
 	if (res != OK) {
 		log_info(1, "%s: SELF IX DETECT TEST FAIL\n", __func__);
-		goto goto_error;
+		if (stop_on_fail)
+			goto goto_error;
 	}
 goto_error:
 	if (res != OK) {

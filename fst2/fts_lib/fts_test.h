@@ -182,6 +182,11 @@ void print_frame_u16(char *label, u16 **matrix, int row, int column);
 short **array_1d_to_2d_short(short *data, int size, int columns);
 i8 **array_1d_to_2d_i8(i8 *data, int size, int columns);
 u16 **array_1d_to_2d_u16(u16 *data, int size, int columns);
+int compute_adj_horiz_total(short *data, int row, int column, u16 **result);
+int compute_adj_vert_total(short *data, int row, int column, u16 **result);
+int check_limits_map_adj_total(u16 *data, int row, int column, int *max);
+int check_limits_map_total(short *data, int row, int column,
+				int *min, int *max);
 
 /**@}*/
 
@@ -199,11 +204,12 @@ int fts_production_test_ms_raw(char *path_limits, struct test_to_do *tests);
 int fts_production_test_ms_raw_lp(char *path_limits, struct test_to_do *tests);
 int fts_production_test_ss_raw(char *path_limits, struct test_to_do *tests);
 int fts_production_test_ss_raw_lp(char *path_limits, struct test_to_do *tests);
-int fts_production_test_ms_cx_lp(char *path_limits, struct test_to_do *tests);
+int fts_production_test_ms_cx_lp(char *path_limits, int stop_on_fail,
+					struct test_to_do *tests);
 int fts_production_test_ss_ix(char *path_limits, struct test_to_do *tests);
 int fts_production_test_ss_ix_lp(char *path_limits, struct test_to_do *tests);
-int fts_production_test_main(char *path_limits, struct test_to_do *tests,
-						int do_init);
+int fts_production_test_main(char *path_limits, int stop_on_fail,
+					struct test_to_do *tests, int do_init);
 /** @}*/
 
 

@@ -138,4 +138,12 @@ int read_sys_info(void);
 int flash_update(struct force_update_flag *force_update);
 int configure_spi4(void);
 int full_panel_init(struct force_update_flag *force_update);
+unsigned int calculate_crc(unsigned char *message, int size);
+int get_fw_file_data(const char *path_to_file, u8 **data, int *size);
+int flash_update_preset(void);
+int wait_for_flash_ready(u8 type);
+int flash_erase(int flash_pages);
+int start_flash_dma(void);
+int flash_dma(u32 address, u8 *data, int size);
+int fill_flash(u32 address, u8 *data, int size);
 #endif

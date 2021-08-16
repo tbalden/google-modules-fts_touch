@@ -196,7 +196,8 @@ void release_all_touches(struct fts_ts_info *info)
 	unsigned int type = MT_TOOL_FINGER;
 	int i;
 
-	for (i = 0; i < TOUCH_ID_MAX; i++) {
+	for (i = 0; i < TOUCH_ID_MAX + PEN_ID_MAX ; i++) {
+		type = i < TOUCH_ID_MAX ? MT_TOOL_FINGER : MT_TOOL_PEN;
 		input_mt_slot(info->input_dev, i);
 		input_report_abs(info->input_dev, ABS_MT_PRESSURE, 0);
 		input_mt_report_slot_state(info->input_dev, type, 0);
@@ -499,6 +500,82 @@ static void fts_controller_ready_event_handler(struct fts_ts_info *info,
 			 __func__, error);
 }
 
+
+/**
+  * Event handler for enter and motion events (EVT_ID_ENTER_PEN,
+  * EVT_ID_MOTION_PEN)
+  * report to the linux input system pen touches with their coordinated and
+  * additional informations
+  */
+static void fts_enter_pen_event_handler(struct fts_ts_info *info, unsigned
+					    char *event)
+{
+
+	unsigned char pen_id;
+	unsigned int touch_condition = 1, tool = MT_TOOL_PEN;
+	int x, y, pressure, tilt_x, tilt_y;
+
+
+	if (!info->resume_bit)
+		goto no_report;
+
+	pen_id = (event[0] & 0x0C) >> 2;
+	pen_id = pen_id + TOUCH_ID_MAX;
+
+	x = (((int)event[2] & 0x0F) << 8) | (event[1]);
+	y = ((int)event[3] << 4) | ((event[2] & 0xF0) >> 4);
+	tilt_x = (int)(event[4]);
+	tilt_y = (int)(event[5]);
+	pressure = (((int)event[7] & 0x0F) << 8) | (event[6]);
+
+
+	input_mt_slot(info->input_dev, pen_id);
+	touch_condition = 1;
+	__set_bit(pen_id, &info->touch_id);
+
+
+	input_report_key(info->input_dev, BTN_TOUCH, touch_condition);
+	input_mt_report_slot_state(info->input_dev, tool, 1);
+	input_report_abs(info->input_dev, ABS_MT_POSITION_X, x);
+	input_report_abs(info->input_dev, ABS_MT_POSITION_Y, y);
+	input_report_abs(info->input_dev, ABS_TILT_X, tilt_x);
+	input_report_abs(info->input_dev, ABS_TILT_Y, tilt_y);
+	input_report_abs(info->input_dev, ABS_MT_PRESSURE, pressure);
+
+no_report:
+	return;
+}
+
+#define fts_motion_pen_event_handler fts_enter_pen_event_handler
+/*!< remap the pen motion event handler to the same function which handle the
+ * enter event */
+
+
+/**
+  * Event handler for leave event (EVT_ID_LEAVE_PEN )
+  * Report to the linux input system that pen touch left the display
+  */
+static void fts_leave_pen_event_handler(struct fts_ts_info *info, unsigned
+					    char *event)
+{
+
+	unsigned char pen_id;
+	unsigned int tool = MT_TOOL_PEN;
+
+
+	pen_id = (event[0] & 0x0C) >> 2;
+	pen_id = pen_id + TOUCH_ID_MAX;
+
+
+	input_mt_slot(info->input_dev, pen_id);
+	__clear_bit(pen_id, &info->touch_id);
+
+
+	input_report_abs(info->input_dev, ABS_MT_PRESSURE, 0);
+	input_mt_report_slot_state(info->input_dev, tool, 0);
+	input_report_abs(info->input_dev, ABS_MT_TRACKING_ID, -1);
+}
+
 /**
   * Initialize the dispatch table with the event handlers for any possible event
   * ID
@@ -526,6 +603,9 @@ static int fts_interrupt_install(struct fts_ts_info *info)
 	install_handler(info, MOTION_POINT, motion_pointer);
 	install_handler(info, ERROR, error);
 	install_handler(info, CONTROLLER_READY, controller_ready);
+	install_handler(info, ENTER_PEN, enter_pen);
+	install_handler(info, LEAVE_PEN, leave_pen);
+	install_handler(info, MOTION_PEN, motion_pen);
 
 	error = fts_disable_interrupt();
 
@@ -768,7 +848,7 @@ static int fts_chip_init(struct fts_ts_info *info)
 	}
 	if (force_burn.panel_init) {
 		log_info(1, "%s: [2]: MP TEST..\n", __func__, res);
-		res = fts_production_test_main(LIMITS_FILE, &tests, 0);
+		res = fts_production_test_main(LIMITS_FILE, 0, &tests, 0);
 		if (res != OK)
 			log_info(1, "%s: [2]: MP TEST FAILED..\n",
 				__func__, res);
@@ -1246,7 +1326,8 @@ static int fts_probe(struct spi_device *client)
 	__set_bit(EV_ABS, info->input_dev->evbit);
 	__set_bit(BTN_TOUCH, info->input_dev->keybit);
 
-	input_mt_init_slots(info->input_dev, TOUCH_ID_MAX, INPUT_MT_DIRECT);
+	input_mt_init_slots(info->input_dev, TOUCH_ID_MAX + PEN_ID_MAX,
+		INPUT_MT_DIRECT);
 	input_set_abs_params(info->input_dev, ABS_MT_POSITION_X, X_AXIS_MIN,
 						X_AXIS_MAX, 0, 0);
 	input_set_abs_params(info->input_dev, ABS_MT_POSITION_Y, Y_AXIS_MIN,
@@ -1258,6 +1339,10 @@ static int fts_probe(struct spi_device *client)
 	input_set_abs_params(info->input_dev, ABS_MT_PRESSURE, PRESSURE_MIN,
 						PRESSURE_MAX, 0, 0);
 	input_set_abs_params(info->input_dev, ABS_MT_DISTANCE, DISTANCE_MIN,
+						DISTANCE_MAX, 0, 0);
+	input_set_abs_params(info->input_dev, ABS_TILT_X, DISTANCE_MIN,
+						DISTANCE_MAX, 0, 0);
+	input_set_abs_params(info->input_dev, ABS_TILT_Y, DISTANCE_MIN,
 						DISTANCE_MAX, 0, 0);
 	mutex_init(&(info->input_report_mutex));
 	spin_lock_init(&fts_int);
