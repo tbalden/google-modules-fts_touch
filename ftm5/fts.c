@@ -4904,7 +4904,15 @@ static int fts_fw_update(struct fts_ts_info *info)
 #ifdef COMPUTE_INIT_METHOD
 			|| ((info->systemInfo.u8_mpFlag != MP_FLAG_BOOT) &&
 				(info->systemInfo.u8_mpFlag != MP_FLAG_FACTORY) &&
-				(info->systemInfo.u8_mpFlag != MP_FLAG_NEED_FPI))
+				(info->systemInfo.u8_mpFlag != MP_FLAG_NEED_FPI) &&
+				/* If skip_fpi_for_unset_mpflag is not set,
+				 * bypass MP_FLAG_UNSET check.
+				 * If skip_fpi_for_unset_mpflag is set,
+				 * then check if mpFlag != MP_FLAG_UNSET.
+				 */
+				((info->board->skip_fpi_for_unset_mpflag == false) ||
+				 (info->systemInfo.u8_mpFlag != MP_FLAG_UNSET))
+				)
 #endif
 			) {
 			init_type = SPECIAL_FULL_PANEL_INIT;
@@ -6225,6 +6233,12 @@ static int parse_dt(struct device *dev, struct fts_hw_platform_data *bdata)
 	if (of_property_read_bool(np, "st,save-golden-ms-raw")) {
 		bdata->separate_save_golden_ms_raw_cmd = true;
 		dev_info(dev, "Separate \"Save Golden MS Raw\" command from PI command.\n");
+	}
+
+	bdata->skip_fpi_for_unset_mpflag = false;
+	if (of_property_read_bool(np, "st,skip-fpi-for-unset-mpflag")) {
+		bdata->skip_fpi_for_unset_mpflag = true;
+		dev_info(dev, "Skip boot-time FPI for unset MP flag.\n");
 	}
 
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
