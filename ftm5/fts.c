@@ -4192,8 +4192,13 @@ static void fts_populate_mutual_channel(struct fts_ts_info *info,
 		data_type = MS_BASELINE;
 		break;
 	}
-	mutual_strength->tx_size = getForceLen(info);
-	mutual_strength->rx_size = getSenseLen(info);
+	if (info->board->tx_rx_dir_swap) {
+		mutual_strength->tx_size = getSenseLen(info);
+		mutual_strength->rx_size = getForceLen(info);
+	} else {
+		mutual_strength->tx_size = getForceLen(info);
+		mutual_strength->rx_size = getSenseLen(info);
+	}
 	mutual_strength->header.channel_type = frame->channel_type[channel];
 	mutual_strength->header.channel_size =
 		TOUCH_OFFLOAD_FRAME_SIZE_2D(mutual_strength->rx_size,
@@ -4204,13 +4209,8 @@ static void fts_populate_mutual_channel(struct fts_ts_info *info,
 		dev_err(info->dev, "getMSFrame3 failed with result=0x%08X.\n",
 			result);
 	} else {
-		if (info->board->tx_rx_dir_swap) {
-			max_x = mutual_strength->rx_size;
-			max_y = mutual_strength->tx_size;
-		} else {
-			max_x = mutual_strength->tx_size;
-			max_y = mutual_strength->rx_size;
-		}
+		max_x = mutual_strength->tx_size;
+		max_y = mutual_strength->rx_size;
 
 		for (y = 0; y < max_y; y++) {
 			for (x = 0; x < max_x; x++) {
@@ -4253,12 +4253,18 @@ static void fts_populate_self_channel(struct fts_ts_info *info,
 					int channel)
 {
 	SelfSenseFrame ss_frame = { 0 };
+	int i;
 	int result;
 	uint32_t data_type = 0;
 	struct TouchOffloadData1d *self_strength =
 		(struct TouchOffloadData1d *)frame->channel_data[channel];
-	self_strength->tx_size = getForceLen(info);
-	self_strength->rx_size = getSenseLen(info);
+	if (info->board->tx_rx_dir_swap) {
+		self_strength->tx_size = getSenseLen(info);
+		self_strength->rx_size = getForceLen(info);
+	} else {
+		self_strength->tx_size = getForceLen(info);
+		self_strength->rx_size = getSenseLen(info);
+	}
 	self_strength->header.channel_type = frame->channel_type[channel];
 	self_strength->header.channel_size =
 		TOUCH_OFFLOAD_FRAME_SIZE_1D(self_strength->rx_size,
@@ -4283,10 +4289,36 @@ static void fts_populate_self_channel(struct fts_ts_info *info,
 		dev_err(info->dev, "getSSFrame3 failed with result=0x%08X.\n",
 			result);
 	} else {
-		memcpy(self_strength->data, ss_frame.force_data,
-		       2 * self_strength->tx_size);
-		memcpy(&self_strength->data[2 * self_strength->tx_size],
-		       ss_frame.sense_data, 2 * self_strength->rx_size);
+		uint16_t *tx_src, *rx_src, *tx_dst, *rx_dst;
+		if (info->board->tx_rx_dir_swap) {
+			tx_src = ss_frame.sense_data;
+			rx_src = ss_frame.force_data;
+		} else {
+			tx_src = ss_frame.force_data;
+			rx_src = ss_frame.sense_data;
+		}
+		/* tx, rx data order is fixed in TouchOffloadData1d */
+		tx_dst = (uint16_t *)self_strength->data;
+		rx_dst = (uint16_t *)&self_strength->data[
+					2 * self_strength->tx_size];
+
+		/* If the tx data is flipped, copy in left-to-right order */
+		if (info->board->sensor_inverted_x) {
+			for (i = 0; i < self_strength->tx_size; i++)
+				tx_dst[i] =
+					tx_src[self_strength->tx_size - 1 - i];
+		} else {
+			memcpy(tx_dst, tx_src, 2 * self_strength->tx_size);
+		}
+
+		/* If the rx data is flipped, copy in top-to-bottom order */
+		if (info->board->sensor_inverted_y) {
+			for (i = 0; i < self_strength->rx_size; i++)
+				rx_dst[i] =
+					rx_src[self_strength->rx_size - 1 - i];
+		} else {
+			memcpy(rx_dst, rx_src, 2 * self_strength->rx_size);
+		}
 	}
 	kfree(ss_frame.force_data);
 	kfree(ss_frame.sense_data);
@@ -4904,7 +4936,15 @@ static int fts_fw_update(struct fts_ts_info *info)
 #ifdef COMPUTE_INIT_METHOD
 			|| ((info->systemInfo.u8_mpFlag != MP_FLAG_BOOT) &&
 				(info->systemInfo.u8_mpFlag != MP_FLAG_FACTORY) &&
-				(info->systemInfo.u8_mpFlag != MP_FLAG_NEED_FPI))
+				(info->systemInfo.u8_mpFlag != MP_FLAG_NEED_FPI) &&
+				/* If skip_fpi_for_unset_mpflag is not set,
+				 * bypass MP_FLAG_UNSET check.
+				 * If skip_fpi_for_unset_mpflag is set,
+				 * then check if mpFlag != MP_FLAG_UNSET.
+				 */
+				((info->board->skip_fpi_for_unset_mpflag == false) ||
+				 (info->systemInfo.u8_mpFlag != MP_FLAG_UNSET))
+				)
 #endif
 			) {
 			init_type = SPECIAL_FULL_PANEL_INIT;
@@ -6160,6 +6200,8 @@ static int parse_dt(struct device *dev, struct fts_hw_platform_data *bdata)
 	u32 coords[2];
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
 	u8 offload_id[4];
+
+	struct fts_ts_info *info = dev_get_drvdata(dev);
 #endif
 
 	if (of_property_read_u8_array(np, "st,dchip_id", bdata->dchip_id, 2)) {
@@ -6227,6 +6269,12 @@ static int parse_dt(struct device *dev, struct fts_hw_platform_data *bdata)
 		dev_info(dev, "Separate \"Save Golden MS Raw\" command from PI command.\n");
 	}
 
+	bdata->skip_fpi_for_unset_mpflag = false;
+	if (of_property_read_bool(np, "st,skip-fpi-for-unset-mpflag")) {
+		bdata->skip_fpi_for_unset_mpflag = true;
+		dev_info(dev, "Skip boot-time FPI for unset MP flag.\n");
+	}
+
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
 	bdata->heatmap_mode_full_init = false;
 	if (of_property_read_bool(np, "st,heatmap_mode_full")) {
@@ -6290,8 +6338,16 @@ static int parse_dt(struct device *dev, struct fts_hw_platform_data *bdata)
 	bdata->device_name = NULL;
 	of_property_read_string(np, "st,device_name",
 				&bdata->device_name);
-	if(!bdata->device_name)
+	if(!bdata->device_name) {
 		bdata->device_name = FTS_TS_DRV_NAME;
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
+		scnprintf(info->offload.device_name, 32, "touch_offload");
+	} else {
+		scnprintf(info->offload.device_name, 32, "touch_offload_%s",
+			  info->board->device_name);
+		info->offload.multiple_panels = true;
+#endif
+	}
 	dev_info(dev, "device_name = %s\n", bdata->device_name);
 
 	if (of_property_read_u8(np, "st,grip_area", &bdata->fw_grip_area))
@@ -6641,8 +6697,13 @@ static int fts_probe(struct spi_device *client)
 	info->offload.caps.device_id = info->board->offload_id;
 	info->offload.caps.display_width = info->board->x_axis_max;
 	info->offload.caps.display_height = info->board->y_axis_max;
-	info->offload.caps.tx_size = getForceLen(info);
-	info->offload.caps.rx_size = getSenseLen(info);
+	if (info->board->tx_rx_dir_swap) {
+		info->offload.caps.tx_size = getSenseLen(info);
+		info->offload.caps.rx_size = getForceLen(info);
+	} else {
+		info->offload.caps.tx_size = getForceLen(info);
+		info->offload.caps.rx_size = getSenseLen(info);
+	}
 	info->offload.caps.bus_type = BUS_TYPE_SPI;
 	info->offload.caps.bus_speed_hz = 10000000;
 	info->offload.caps.heatmap_size = HEATMAP_SIZE_FULL;

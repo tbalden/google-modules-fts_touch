@@ -315,6 +315,7 @@ struct fts_hw_platform_data {
 	int udfps_y;
 	bool auto_fw_update;
 	bool separate_save_golden_ms_raw_cmd;
+	bool skip_fpi_for_unset_mpflag;
 	bool sensor_inverted_x;
 	bool sensor_inverted_y;
 	bool tx_rx_dir_swap; /* Set as TRUE if Tx direction is same as x-axis. */
