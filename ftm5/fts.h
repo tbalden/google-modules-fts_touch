@@ -834,6 +834,7 @@ struct fts_ts_info {
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
 	struct touch_offload_context offload;
 	struct delayed_work offload_resume_work;
+	int touch_offload_active_coords;
 #endif
 
 	struct delayed_work fwu_work;	/* Work for fw update */

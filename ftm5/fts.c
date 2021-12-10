@@ -122,6 +122,10 @@ static int fts_chip_initialization(struct fts_ts_info *info, int init_type);
 static int register_panel_bridge(struct fts_ts_info *info);
 static void unregister_panel_bridge(struct drm_bridge *bridge);
 
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
+static void fts_offload_push_coord_frame(struct fts_ts_info *info);
+#endif
+
 /**
   * Release all the touches in the linux input subsystem
   * @param info pointer to fts_ts_info which contains info about device/hw setup
@@ -130,6 +134,18 @@ void release_all_touches(struct fts_ts_info *info)
 {
 	unsigned int type = MT_TOOL_FINGER;
 	int i;
+
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
+	/* If the previous coord_frame that was pushed to touch_offload had
+	 * active coords (eg. there are fingers still on the screen), push an
+	 * empty coord_frame to touch_offload for clearing coords in twoshay.*/
+	if (info->touch_offload_active_coords) {
+		for (i = 0; i < TOUCH_ID_MAX; i++) {
+			info->offload.coords[i].status = COORD_STATUS_INACTIVE;
+		}
+		fts_offload_push_coord_frame(info);
+	} else {
+#endif
 
 	mutex_lock(&info->input_report_mutex);
 
@@ -155,6 +171,10 @@ void release_all_touches(struct fts_ts_info *info)
 	input_sync(info->input_dev);
 
 	mutex_unlock(&info->input_report_mutex);
+
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
+	}
+#endif
 
 	info->touch_id = 0;
 	info->palm_touch_mask = 0;
@@ -4107,6 +4127,7 @@ static void fts_populate_coordinate_channel(struct fts_ts_info *info,
 					int channel)
 {
 	int j;
+	int active_coords = 0;
 
 	struct TouchOffloadDataCoord *dc =
 		(struct TouchOffloadDataCoord *)frame->channel_data[channel];
@@ -4121,7 +4142,11 @@ static void fts_populate_coordinate_channel(struct fts_ts_info *info,
 		dc->coords[j].minor = info->offload.coords[j].minor;
 		dc->coords[j].pressure = info->offload.coords[j].pressure;
 		dc->coords[j].status = info->offload.coords[j].status;
+		if (dc->coords[j].status != COORD_STATUS_INACTIVE)
+			active_coords += 1;
 	}
+
+	info->touch_offload_active_coords = active_coords;
 }
 
 static void fts_update_v4l2_mutual_strength(struct fts_ts_info *info,
@@ -4325,7 +4350,8 @@ static void fts_populate_self_channel(struct fts_ts_info *info,
 }
 
 static void fts_populate_frame(struct fts_ts_info *info,
-				struct touch_offload_frame *frame)
+				struct touch_offload_frame *frame,
+				int populate_channel_types)
 {
 	static u64 index;
 	int i;
@@ -4335,11 +4361,14 @@ static void fts_populate_frame(struct fts_ts_info *info,
 
 	/* Populate all channels */
 	for (i = 0; i < frame->num_channels; i++) {
-		if (frame->channel_type[i] == TOUCH_DATA_TYPE_COORD)
+		if ((frame->channel_type[i] & populate_channel_types) ==
+		    TOUCH_DATA_TYPE_COORD)
 			fts_populate_coordinate_channel(info, frame, i);
-		else if ((frame->channel_type[i] & TOUCH_SCAN_TYPE_MUTUAL) != 0)
+		else if ((frame->channel_type[i] & TOUCH_SCAN_TYPE_MUTUAL &
+			  populate_channel_types) != 0)
 			fts_populate_mutual_channel(info, frame, i);
-		else if ((frame->channel_type[i] & TOUCH_SCAN_TYPE_SELF) != 0)
+		else if ((frame->channel_type[i] & TOUCH_SCAN_TYPE_SELF &
+			  populate_channel_types) != 0)
 			fts_populate_self_channel(info, frame, i);
 	}
 }
@@ -4460,7 +4489,7 @@ static irqreturn_t fts_interrupt_handler(int irq, void *handle)
 		} else {
 			fts_offload_set_running(info, true);
 
-			fts_populate_frame(info, frame);
+			fts_populate_frame(info, frame, 0xFFFFFFFF);
 
 			error = touch_offload_queue_frame(&info->offload,
 							  frame);
@@ -4488,6 +4517,32 @@ static irqreturn_t fts_interrupt_handler(int irq, void *handle)
 }
 
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
+static void fts_offload_push_coord_frame(struct fts_ts_info *info) {
+	struct touch_offload_frame *frame = NULL;
+	int error = 0;
+
+	dev_info(info->dev, "%s: active coords %d.\n",
+	 	 __func__, info->touch_offload_active_coords);
+
+	error = touch_offload_reserve_frame(&info->offload, &frame);
+	if (error != 0) {
+		dev_dbg(info->dev,
+			"%s: Could not reserve a frame: error=%d.\n",
+			__func__, error);
+
+	} else {
+		fts_populate_frame(info, frame, TOUCH_DATA_TYPE_COORD);
+
+		error = touch_offload_queue_frame(&info->offload,
+						  frame);
+		if (error != 0) {
+			dev_err(info->dev,
+				"%s: Failed to queue reserved frame: error=%d.\n",
+				__func__, error);
+		}
+	}
+}
+
 static void fts_offload_report(void *handle,
 			       struct TouchOffloadIocReport *report)
 {
@@ -6641,7 +6696,9 @@ static int fts_probe(struct spi_device *client)
 	info->mutual_strength_heatmap.data = NULL;
 	info->v4l2_mutual_strength_updated = false;
 #endif
-
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
+	info->touch_offload_active_coords = 0;
+#endif
 	/* init motion filter mode */
 	info->use_default_mf = false;
 
