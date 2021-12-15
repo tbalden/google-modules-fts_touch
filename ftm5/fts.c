@@ -2985,8 +2985,8 @@ static bool fts_enter_pointer_event_handler(struct fts_ts_info *info, unsigned
 #endif
 		z = 1; /* smallest non-zero pressure value */
 	}
-	major = (int)(((event[0] & 0x0C) << 2) | ((event[6] & 0xF0) >> 4));
-	minor = (int)(((event[7] & 0xC0) >> 2) | (event[6] & 0x0F));
+	major = (int)((((event[0] & 0x0C) << 2) | ((event[6] & 0xF0) >> 4)) * AREA_SCALE);
+	minor = (int)((((event[7] & 0xC0) >> 2) | (event[6] & 0x0F)) * AREA_SCALE);
 	/* TODO: check with fw how they will report distance */
 	distance = 0;	/* if the tool is touching the display
 			  * the distance should be 0 */
@@ -3079,8 +3079,8 @@ static bool fts_enter_pointer_event_handler(struct fts_ts_info *info, unsigned
 	input_mt_report_slot_state(info->input_dev, tool, 1);
 	input_report_abs(info->input_dev, ABS_MT_POSITION_X, x);
 	input_report_abs(info->input_dev, ABS_MT_POSITION_Y, y);
-	input_report_abs(info->input_dev, ABS_MT_TOUCH_MAJOR, major * AREA_SCALE);
-	input_report_abs(info->input_dev, ABS_MT_TOUCH_MINOR, minor * AREA_SCALE);
+	input_report_abs(info->input_dev, ABS_MT_TOUCH_MAJOR, major);
+	input_report_abs(info->input_dev, ABS_MT_TOUCH_MINOR, minor);
 #ifndef SKIP_PRESSURE
 	input_report_abs(info->input_dev, ABS_MT_PRESSURE, z);
 #endif
@@ -4514,9 +4514,9 @@ static void fts_offload_report(void *handle,
 			input_report_abs(info->input_dev, ABS_MT_POSITION_Y,
 					 report->coords[i].y);
 			input_report_abs(info->input_dev, ABS_MT_TOUCH_MAJOR,
-					 report->coords[i].major * AREA_SCALE);
+					 report->coords[i].major);
 			input_report_abs(info->input_dev, ABS_MT_TOUCH_MINOR,
-					 report->coords[i].minor * AREA_SCALE);
+					 report->coords[i].minor);
 
 #ifndef SKIP_PRESSURE
 			if ((int)report->coords[i].pressure <= 0) {
