@@ -2948,6 +2948,80 @@ void fts_input_report_key(struct fts_ts_info *info, int key_code)
 	mutex_unlock(&info->input_report_mutex);
 }
 
+/**
+  * Palm data dump work function which perform capture the MS raw, strength,
+  * current scan mode and touch count.
+  */
+static void fts_palm_data_dump_work(struct work_struct *work)
+{
+	struct delayed_work *dwork = container_of(work, struct delayed_work,
+						  work);
+	struct fts_ts_info *info = container_of(dwork, struct fts_ts_info,
+						palm_data_dump_work);
+	const MSFrameType ms_type[] =
+#ifdef READ_FILTERED_RAW
+		{ MS_FILTER, MS_STRENGTH };
+#else
+		{ MS_RAW, MS_STRENGTH };
+#endif
+	const SSFrameType ss_type[] =
+#ifdef READ_FILTERED_RAW
+		{ SS_FILTER, SS_STRENGTH };
+#else
+		{ SS_RAW, SS_STRENGTH };
+#endif
+	char *ms_tag[] = { "MS raw", "MS strength" };
+	char *ss_tag[] = { "SS raw", "SS strength" };
+	MutualSenseFrame frameMS;
+	SelfSenseFrame frameSS;
+	int i, ret;
+
+	// Dump heatmap
+	for (i = 0; i < ARRAY_SIZE(ms_type); i++) {
+		ret = getMSFrame3(info, ms_type[i], &frameMS);
+		if (ret < 0) {
+			dev_err(info->dev,
+				"Error while taking the %s... ERROR %08X\n",
+				ms_tag[i], ret);
+		} else {
+			print_frame_short(info, ms_tag[i],
+				array1dTo2d_short(frameMS.node_data,
+					frameMS.node_data_size,
+					frameMS.header.sense_node),
+				frameMS.header.force_node,
+				frameMS.header.sense_node);
+		}
+	}
+
+	for (i = 0; i < ARRAY_SIZE(ss_type); i++) {
+		ret = getSSFrame3(info, ss_type[i], &frameSS);
+		if (ret < 0) {
+			dev_err(info->dev,
+				"Error while taking the %s... ERROR %08X\n",
+				ss_tag[i], ret);
+		} else {
+			dev_info(info->dev, "%s\n", ss_tag[i]);
+			print_frame_short(info, "SS force",
+				array1dTo2d_short(
+					frameSS.force_data,
+					frameSS.header.force_node,
+					frameSS.header.force_node),
+				1, frameSS.header.force_node);
+			print_frame_short(info, "SS sense",
+				array1dTo2d_short(
+					frameSS.sense_data,
+					frameSS.header.sense_node,
+					frameSS.header.sense_node),
+				1, frameSS.header.sense_node);
+		}
+	}
+
+	if (info->enable_palm_data_dump)
+		queue_delayed_work(info->event_wq,
+				   &info->palm_data_dump_work,
+				   msecs_to_jiffies(1000));
+}
+
 
 
 /**
@@ -3561,6 +3635,10 @@ static bool fts_status_event_handler(struct fts_ts_info *info, unsigned
 				" = %02X %02X %02X %02X %02X %02X\n",
 				__func__, event[2], event[3], event[4],
 				event[5], event[6], event[7]);
+			info->enable_palm_data_dump = true;
+			queue_delayed_work(info->event_wq,
+					   &info->palm_data_dump_work,
+					   msecs_to_jiffies(3000));
 			break;
 
 		case 0x02:
@@ -3568,6 +3646,8 @@ static bool fts_status_event_handler(struct fts_ts_info *info, unsigned
 				" = %02X %02X %02X %02X %02X %02X\n",
 				__func__, event[2], event[3], event[4],
 				event[5], event[6], event[7]);
+			info->enable_palm_data_dump = false;
+			cancel_delayed_work(&info->palm_data_dump_work);
 			break;
 
 		default:
@@ -5811,6 +5891,8 @@ static void fts_aggregate_bus_state(struct fts_ts_info *info)
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
 		cancel_delayed_work_sync(&info->offload_resume_work);
 #endif
+		info->enable_palm_data_dump = false;
+		cancel_delayed_work_sync(&info->palm_data_dump_work);
 		queue_work(info->event_wq, &info->suspend_work);
 	} else
 		queue_work(info->event_wq, &info->resume_work);
@@ -6859,6 +6941,9 @@ static int fts_probe(struct spi_device *client)
 	}
 	INIT_DELAYED_WORK(&info->fwu_work, fts_fw_update_auto);
 #endif
+
+	info->enable_palm_data_dump = false;
+	INIT_DELAYED_WORK(&info->palm_data_dump_work, fts_palm_data_dump_work);
 
 	dev_info(info->dev, "SET Device File Nodes:\n");
 	/* sysfs stuff */
