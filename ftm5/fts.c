@@ -139,7 +139,7 @@ void release_all_touches(struct fts_ts_info *info)
 	/* If the previous coord_frame that was pushed to touch_offload had
 	 * active coords (eg. there are fingers still on the screen), push an
 	 * empty coord_frame to touch_offload for clearing coords in twoshay.*/
-	if (info->touch_offload_active_coords) {
+	if (info->offload.offload_running && info->touch_offload_active_coords) {
 		for (i = 0; i < TOUCH_ID_MAX; i++) {
 			info->offload.coords[i].status = COORD_STATUS_INACTIVE;
 		}
