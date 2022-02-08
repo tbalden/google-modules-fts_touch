@@ -837,6 +837,8 @@ struct fts_ts_info {
 	int touch_offload_active_coords;
 #endif
 
+	bool enable_palm_data_dump;
+	struct delayed_work palm_data_dump_work;
 	struct delayed_work fwu_work;	/* Work for fw update */
 	struct workqueue_struct *fwu_workqueue;	/* Fw update work queue */
 	event_dispatch_handler_t *event_dispatch_table;	/* Dispatch table */
