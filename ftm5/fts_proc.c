@@ -476,7 +476,7 @@ static void *fts_seq_start(struct seq_file *s, loff_t *pos)
 		 * __func__, info->limit, info->driver_test_buff); */
 	} else {
 		if (*pos != 0)
-			*pos += info->chunk - 1;
+			*pos = info->printed;
 
 		if (*pos >= info->limit)
 			/* dev_err(info->dev, "%s: Apparently, we're done.\n", __func__); */
@@ -506,8 +506,8 @@ static int fts_seq_show(struct seq_file *s, void *v)
 	struct fts_ts_info *info = PDE_DATA(file_inode(s->file));
 
 	/* dev_err(info->dev, "%s: In show()\n", __func__); */
-	seq_write(s, (u8 *)v, info->chunk);
-	info->printed += info->chunk;
+	if (seq_write(s, (u8 *)v, info->chunk) == 0)
+		info->printed += info->chunk;
 	return 0;
 }
 
@@ -2866,14 +2866,31 @@ END_DIAGNOSTIC:
 						FTS_BUS_REF_FORCE_ACTIVE,
 						cmd[1]);
 					res = OK;
-					if (cmd[1])
-						__pm_stay_awake(info->wakesrc);
-					else
-						__pm_relax(info->wakesrc);
+				}
+			} else if (numberParam == 3){
+				if (cmd[1] > 1) {
+					dev_err(info->dev, "Parameter should be 1 or 0\n");
+					res = ERROR_OP_NOT_ALLOW;
+				} else {
+					dev_info(info->dev, "%s: %s\n",
+						cmd[2] ? "FTS_BUS_REF_BUGREPORT" :
+							"FTS_BUS_REF_FORCE_ACTIVE",
+						cmd[1] ? "ON" : "OFF");
+					fts_set_bus_ref(info,
+						cmd[2] ? FTS_BUS_REF_BUGREPORT :
+							FTS_BUS_REF_FORCE_ACTIVE,
+						cmd[1]);
+					res = OK;
 				}
 			} else {
 				dev_err(info->dev, "Wrong number of parameters!\n");
 				res = ERROR_OP_NOT_ALLOW;
+			}
+			if (res == OK) {
+				if (cmd[1])
+					__pm_stay_awake(info->wakesrc);
+				else
+					__pm_relax(info->wakesrc);
 			}
 			break;
 
@@ -3716,7 +3733,7 @@ int fts_proc_init(struct fts_ts_info *info)
 
 	int retval = 0;
 
-	info->fts_dir = proc_mkdir_data(info->board->proc_dir_name, 0555,
+	info->fts_dir = proc_mkdir_data(info->board->device_name, 0555,
 					NULL, info);
 	if (info->fts_dir == NULL) {	/* directory creation failed */
 		retval = -ENOMEM;

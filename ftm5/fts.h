@@ -34,10 +34,10 @@
 
 #include <linux/device.h>
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
-#include <linux/input/heatmap.h>
+#include <heatmap.h>
 #endif
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
-#include <linux/input/touch_offload.h>
+#include <touch_offload.h>
 #endif
 #include <linux/pm_qos.h>
 #include <drm/drm_bridge.h>
@@ -49,7 +49,7 @@
 #include "fts_lib/ftsHardware.h"
 
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_TBN)
-#include <linux/input/touch_bus_negotiator.h>
+#include <touch_bus_negotiator.h>
 #endif
 
 #include <linux/proc_fs.h>
@@ -64,8 +64,8 @@
   */
 /* **** CODE CONFIGURATION **** */
 #define FTS_TS_DRV_NAME		"fts"	/* driver name */
-#define FTS_TS_DRV_VERSION	"5.2.16.15"	/* driver version string */
-#define FTS_TS_DRV_VER		0x0502100F	/* driver version u32 format */
+#define FTS_TS_DRV_VERSION	"5.2.16.16"	/* driver version string */
+#define FTS_TS_DRV_VER		0x05021010	/* driver version u32 format */
 
 /* #define DEBUG */	/* /< define to print more logs in the kernel log
 			 * and better follow the code flow */
@@ -158,7 +158,7 @@
 /* Enable the support of keys */
 /* #define PHONE_KEY */
 
-#define GESTURE_MODE	/* /< enable the support of the gestures */
+#undef GESTURE_MODE	/* /< enable the support of the gestures */
 #ifdef GESTURE_MODE
 	#define USE_GESTURE_MASK	/* /< the gestures to select are
 					 * referred using
@@ -167,19 +167,19 @@
 #endif
 
 
-#define CHARGER_MODE	/* /< enable the support to charger mode feature
+#undef CHARGER_MODE	/* /< enable the support to charger mode feature
 			 * (comment to disable) */
 
 #define GLOVE_MODE	/* /< enable the support to glove mode feature (comment
 			 * to disable) */
 
-#define COVER_MODE	/* /< enable the support to cover mode feature (comment
+#undef COVER_MODE	/* /< enable the support to cover mode feature (comment
 			 * to disable) */
 
-#define STYLUS_MODE	/* /< enable the support to stylus mode feature (comment
+#undef STYLUS_MODE	/* /< enable the support to stylus mode feature (comment
 			 * to disable) */
 
-#define GRIP_MODE	/* /< enable the support to grip mode feature (comment
+#undef GRIP_MODE	/* /< enable the support to grip mode feature (comment
 			 * to disable) */
 
 
@@ -203,10 +203,13 @@
 #define TOUCH_ID_MAX	10	/* /< Max number of simoultaneous touches
 				 * reported */
 
-#define AREA_MIN	PRESSURE_MIN	/* /< min value of Major/minor axis
-					 * reported */
-#define AREA_MAX	PRESSURE_MAX	/* /< Man value of Major/minor axis
-					 * reported */
+#define AREA_SCALE	16	/* /< Scale for major/minor axis calculation */
+#define AREA_MIN	(PRESSURE_MIN * AREA_SCALE)	/* /< Min value of
+							 * major/minor axis
+							 * reported */
+#define AREA_MAX	(PRESSURE_MAX * AREA_SCALE)	/* /< Max value of
+							 * major/minor axis
+							 * reported */
 /* **** END **** */
 
 /* #define SKIP_PRESSURE */
@@ -232,6 +235,13 @@ struct heatmap_report {
 	strength_t data[LOCAL_HEATMAP_WIDTH * LOCAL_HEATMAP_HEIGHT];
 } __attribute__((packed));
 /* **** END **** */
+
+struct heatmap_data {
+	ktime_t timestamp;
+	uint16_t size_x;
+	uint16_t size_y;
+	uint8_t *data;
+} __attribute__((packed));
 #endif
 /*
   * Configuration mode
@@ -297,14 +307,18 @@ struct fts_hw_platform_data {
 	int disp_rate_gpio; /* disp_rate gpio: LOW=60Hz, HIGH=90Hz */
 	const char *fw_name;
 	const char *limits_name;
-	const char *proc_dir_name;
+	const char *device_name;
 	bool sensor_inverted;
 	int x_axis_max;
 	int y_axis_max;
+	int udfps_x;
+	int udfps_y;
 	bool auto_fw_update;
 	bool separate_save_golden_ms_raw_cmd;
+	bool skip_fpi_for_unset_mpflag;
 	bool sensor_inverted_x;
 	bool sensor_inverted_y;
+	bool tx_rx_dir_swap; /* Set as TRUE if Tx direction is same as x-axis. */
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
 	bool heatmap_mode_full_init;
 #endif
@@ -314,6 +328,7 @@ struct fts_hw_platform_data {
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
 	u32 offload_id;
 #endif
+	u8 fw_grip_area;
 };
 
 /* Bits for the bus reference mask */
@@ -323,6 +338,7 @@ enum {
 	FTS_BUS_REF_FW_UPDATE		= 0x04,
 	FTS_BUS_REF_SYSFS		= 0x08,
 	FTS_BUS_REF_FORCE_ACTIVE	= 0x10,
+	FTS_BUS_REF_BUGREPORT		= 0x20,
 };
 
 /* Motion filter finite state machine (FSM) states
@@ -812,13 +828,17 @@ struct fts_ts_info {
 	struct pm_qos_request pm_qos_req;
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
 	struct v4l2_heatmap v4l2;
+	struct heatmap_data mutual_strength_heatmap;
 #endif
 
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
 	struct touch_offload_context offload;
 	struct delayed_work offload_resume_work;
+	int touch_offload_active_coords;
 #endif
 
+	bool enable_palm_data_dump;
+	struct delayed_work palm_data_dump_work;
 	struct delayed_work fwu_work;	/* Work for fw update */
 	struct workqueue_struct *fwu_workqueue;	/* Fw update work queue */
 	event_dispatch_handler_t *event_dispatch_table;	/* Dispatch table */
@@ -849,6 +869,7 @@ struct fts_ts_info {
 	spinlock_t fts_int;	/* Spinlock to protect interrupt toggling */
 	bool irq_enabled;	/* Interrupt state */
 
+	struct mutex io_mutex;	/* Protect access to the I/O */
 	struct mutex bus_mutex;	/* Protect access to the bus */
 	unsigned int bus_refmask; /* References to the bus */
 
@@ -869,7 +890,7 @@ struct fts_ts_info {
 	struct wakeup_source *wakesrc;	/* Wake Lock struct */
 
 	/* input lock */
-	struct mutex input_report_mutex;	/* Mutex for pressure report */
+	struct mutex input_report_mutex;	/* Mutex for input report */
 
 	/* switches for features */
 	int gesture_enabled;	/* Gesture during suspend */
@@ -880,6 +901,7 @@ struct fts_ts_info {
 	int grip_enabled;	/* Grip mode */
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
 	int heatmap_mode;	/* heatmap mode*/
+	bool v4l2_mutual_strength_updated;
 #endif
 	/* Stop changing motion filter and keep fw design */
 	bool use_default_mf;
@@ -891,7 +913,7 @@ struct fts_ts_info {
 	ktime_t mf_downtime;
 
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_TBN)
-	struct tbn_context	*tbn;
+	u32 tbn_register_mask;
 #endif
 
 	/* Allow only one thread to execute diag command code*/

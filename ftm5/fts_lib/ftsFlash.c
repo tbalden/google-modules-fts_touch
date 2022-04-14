@@ -169,8 +169,10 @@ int readFwFile(struct fts_ts_info *info, const char *path, Firmware *fw,
   * @param force if 1, the flashing procedure will be forced and executed
   * regardless the additional info, otherwise the FW in the file will be burnt
   * only if it is newer than the one running in the IC
-  * @param keep_cx if 1, the CX area will be loaded and burnt otherwise will be
-  * skipped and the area will be untouched
+  * @param keep_cx if 2, load and burn the CX area if the chip and firmware bin
+  * file CX AFE version are different, otherwise untouch this area.
+  * if 1, the CX area will be loaded and burnt otherwise will be skipped and the
+  * area will be untouched.
   * @return OK if success or an error code which specify the type of error
   */
 int flashProcedure(struct fts_ts_info *info, const char *path, int force,
@@ -189,6 +191,18 @@ int flashProcedure(struct fts_ts_info *info, const char *path, int force,
 		return res | ERROR_FLASH_PROCEDURE;
 	}
 	dev_info(info->dev, "Fw file read COMPLETED!\n");
+
+#ifdef COMPUTE_INIT_METHOD
+	if (keep_cx == CX_CHECK_AFE_VER) {
+		if (fw.cx_afe_ver != (uint32_t)info->systemInfo.u8_cxAfeVer) {
+			keep_cx = CX_ERASE;
+			saveMpFlag(info, MP_FLAG_CX_AFE_CHG);
+		} else {
+			keep_cx = CX_KEEP;
+		}
+		dev_info(info->dev, "Update keep_cx to %d\n", keep_cx);
+	}
+#endif
 
 	dev_info(info->dev, "Starting flashing procedure...\n");
 	res = flash_burn(info, fw, force, keep_cx);
@@ -478,17 +492,33 @@ int parseBinFile(struct fts_ts_info *info, u8 *fw_data, int fw_size,
 
 		index += FW_BYTES_ALIGN;
 		memcpy(fwData->data, &fw_data[index], dimension);
-		if (fwData->sec2_size != 0)
+		if (fwData->sec2_size != 0) {
 			u8ToU16(&fwData->data[fwData->sec0_size +
-					      fwData->sec1_size +
-					      FW_CX_VERSION], &fwData->cx_ver);
-
-		else {
-			dev_err(info->dev, "parseBinFile: Initialize cx_ver to default value!\n");
+					     fwData->sec1_size +
+					FW_CX_VERSION], &fwData->cx_ver);
+			fwData->cx_afe_ver = fwData->data[fwData->sec0_size +
+						fwData->sec1_size +
+						FW_CX_AFE_VERSION];
+		} else {
+			dev_info(info->dev, "parseBinFile: Initialize cx_ver "
+				 "and cx_afe_ver to default value!\n");
 			fwData->cx_ver = info->systemInfo.u16_cxVer;
+			fwData->cx_afe_ver = info->systemInfo.u8_cxAfeVer;
 		}
-
-		dev_info(info->dev, "parseBinFile: CX Version = %04X\n", fwData->cx_ver);
+		if (fwData->sec1_size != 0)
+			fwData->cfg_afe_ver = fwData->data[fwData->sec0_size +
+						FW_CFG_AFE_VERSION];
+		else {
+			dev_info(info->dev, "parseBinFile: Initialize cfg_ver to "
+				 "default value from sysinfo!\n");
+			fwData->cfg_afe_ver = info->systemInfo.u8_cfgAfeVer;
+		}
+		dev_info(info->dev, "parseBinFile: CX Version = %04X\n",
+			 fwData->cx_ver);
+		dev_info(info->dev, "parseBinFile: CX AFE Version = %02X\n",
+			fwData->cx_afe_ver);
+		dev_info(info->dev, "parseBinFile: CFG AFE Version = %02X\n",
+			 fwData->cfg_afe_ver);
 
 		fwData->data_size = dimension;
 		index = FLASH_ORG_INFO_INDEX;
@@ -950,7 +980,7 @@ int flash_burn(struct fts_ts_info *info, Firmware fw, int force_burn,
 		/* Compare firmware, config, and CX versions */
 		if (fw.fw_ver != (uint32_t)systemInfo.u16_fwVer ||
 		    fw.config_ver != (uint32_t)systemInfo.u16_cfgVer ||
-		    fw.cx_ver != (uint32_t)systemInfo.u16_cxVer)
+		    fw.cx_afe_ver != (uint32_t)systemInfo.u8_cxAfeVer)
 			goto start;
 
 		for (res = EXTERNAL_RELEASE_INFO_SIZE - 1; res >= 0; res--) {

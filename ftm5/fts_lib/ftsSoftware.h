@@ -45,6 +45,14 @@ typedef enum {
 	BITS_64 = 8
 } AddrSize;
 
+/**
+ * Enumerator which define the keep_cx meaning
+ */
+enum {
+	CX_ERASE,
+	CX_KEEP,
+	CX_CHECK_AFE_VER
+};
 
 /********************  NEW API  *********************/
 
@@ -340,7 +348,13 @@ typedef enum {
 						 * Force */
 #define LOAD_SENS_CAL_COEFF		0xC0	/* /< Load Sesitivity
 						 * Calibration Coefficients */
-#define LOAD_GOLDEN_MUTUAL_RAW  	0x80  	/* /< Load Goden Mutual Raw Data */
+#define LOAD_DEBUG_INFO 		0xC3	/* /< Load Sesitivity
+						 * Calibration Coefficients */
+#define LOAD_GOLDEN_MUTUAL_RAW  	0x80	/* /< Load Goden Mutual Raw Data */
+
+/* Debug information. */
+#define DEBUG_INFO_LP_DETECT		0x05	/* Low power detect scan mode. */
+#define DEBUG_INFO_LP_ACTIVE		0x06	/* Low power active scan mode. */
 
 /** @}*/
 
@@ -511,13 +525,15 @@ typedef enum {
  * a full panel initialization which pass all the tests.
  * @{
  */
-
+#define MP_FLAG_UNSET		0x00	/* /< Original value when a panel module
+					 * just got built. */
 #define MP_FLAG_FACTORY		0xA5	/* /< Full Panel Init done in factory */
 #define MP_FLAG_BOOT		0x5A	/* /< Full Panel Init done at boot */
 #define MP_FLAG_OTHERS		0xFF	/* /< Full Panel Init done somewhere else */
 #define MP_FLAG_NEED_FPI	0xDF	/* /< Manual firmware update with keep_cx=0
 					 * and Full Panel Init is not executed yet */
-
+#define MP_FLAG_CX_AFE_CHG	0xCF	/* /< Need to do Full Panel Init when cx_afe
+					 * version change during auto firmware update. */
 /** @}*/
 
 /** @}*/
