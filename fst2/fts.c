@@ -1495,7 +1495,7 @@ static int fts_probe(struct spi_device *client)
 	if (!info->fwu_workqueue) {
 		log_info(1, "%s ERROR: Cannot create fwu work thread\n",
 			__func__);
-		goto probe_error_exit_6;
+		goto probe_error_exit_7;
 	}
 	INIT_DELAYED_WORK(&info->fwu_work, flash_update_auto);
 #endif
@@ -1506,8 +1506,10 @@ static int fts_probe(struct spi_device *client)
 	log_info(1, "%s: Probe Finished!\n", __func__);
 	return OK;
 
-probe_error_exit_6:
+probe_error_exit_7:
 	unregister_panel_bridge(&info->panel_bridge);
+
+probe_error_exit_6:
 	input_unregister_device(info->input_dev);
 
 probe_error_exit_5:
