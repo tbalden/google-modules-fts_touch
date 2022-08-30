@@ -817,8 +817,6 @@ struct fts_ts_info {
 	struct workqueue_struct *event_wq;	/* Used for event handler, */
 						/* suspend, resume threads */
 
-	struct completion bus_resumed;		/* resume_work complete */
-
 	struct pm_qos_request pm_qos_req;
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
 	struct v4l2_heatmap v4l2;
@@ -864,8 +862,6 @@ struct fts_ts_info {
 	bool irq_enabled;	/* Interrupt state */
 
 	struct mutex io_mutex;	/* Protect access to the I/O */
-	struct mutex bus_mutex;	/* Protect access to the bus */
-	unsigned int bus_refmask; /* References to the bus */
 
 	int resume_bit;	/* Indicate if screen off/on */
 	int fwupdate_stat;	/* Result of a fw update */
@@ -992,8 +988,5 @@ extern int input_unregister_notifier_client(struct notifier_block *nb);
 /* export declaration of functions in fts_proc.c */
 extern int fts_proc_init(struct fts_ts_info *info);
 extern int fts_proc_remove(struct fts_ts_info *info);
-
-/* Bus reference tracking */
-int fts_set_bus_ref(struct fts_ts_info *info, u16 ref, bool enable);
 
 #endif

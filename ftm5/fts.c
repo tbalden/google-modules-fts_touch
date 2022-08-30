@@ -229,7 +229,6 @@ static ssize_t fwupdate_store(struct device *dev,
 	if (sscanf(buf, "%100s %d %d", path, &force, &keep_cx) >= 1) {
 		dev_info(dev, "%s: file = %s, force = %d, keep_cx = %d\n", __func__,
 			path, force, keep_cx);
-		fts_set_bus_ref(info, FTS_BUS_REF_SYSFS, true);
 
 		if (info->sensor_sleep)
 			ret = ERROR_BUS_WR;
@@ -253,8 +252,6 @@ static ssize_t fwupdate_store(struct device *dev,
 		}
 
 		info->fwupdate_stat = ret;
-
-		fts_set_bus_ref(info, FTS_BUS_REF_SYSFS, false);
 
 		if (ret == ERROR_BUS_WR)
 			dev_err(dev, "%s: bus is not accessible. ERROR %08X\n",
@@ -394,13 +391,6 @@ static ssize_t status_show(struct device *dev,
 	int res;
 	int i;
 
-	if (fts_set_bus_ref(info, FTS_BUS_REF_SYSFS, true) < 0) {
-		dev_err(dev, "%s: bus is not accessible.\n", __func__);
-		written += scnprintf(buf, PAGE_SIZE,
-				     "Bus is not accessible.\n");
-		goto exit;
-	}
-
 	written += scnprintf(buf + written, PAGE_SIZE - written,
 			     "Mode: 0x%08X\n", info->mode);
 
@@ -438,7 +428,6 @@ static ssize_t status_show(struct device *dev,
 
 exit:
 	kfree(dump);
-	fts_set_bus_ref(info, FTS_BUS_REF_SYSFS, false);
 	return written;
 }
 
@@ -659,13 +648,6 @@ static ssize_t feature_enable_store(struct device *dev,
 	unsigned int temp, temp2;
 	int res = OK;
 
-	if (fts_set_bus_ref(info, FTS_BUS_REF_SYSFS, true) < 0) {
-		res = ERROR_BUS_WR;
-		dev_err(dev, "%s: bus is not accessible.", __func__);
-		fts_set_bus_ref(info, FTS_BUS_REF_SYSFS, false);
-		return count;
-	}
-
 	if ((count - 2 + 1) / 3 != 1)
 		dev_err(dev, "fts_feature_enable: Number of parameter wrong! %d > %d\n",
 			(count - 2 + 1) / 3, 1);
@@ -742,7 +724,6 @@ static ssize_t feature_enable_store(struct device *dev,
 				__func__);
 	}
 
-	fts_set_bus_ref(info, FTS_BUS_REF_SYSFS, false);
 	return count;
 }
 
@@ -809,13 +790,6 @@ static ssize_t grip_mode_store(struct device *dev,
 	int res;
 	struct fts_ts_info *info = dev_get_drvdata(dev);
 
-	if (fts_set_bus_ref(info, FTS_BUS_REF_SYSFS, true) < 0) {
-		res = ERROR_BUS_WR;
-		dev_err(dev, "%s: bus is not accessible.", __func__);
-		fts_set_bus_ref(info, FTS_BUS_REF_SYSFS, false);
-		return count;
-	}
-
 	/* in case of a different elaboration of the input, just modify
 	  * this initial part of the code according to customer needs */
 	if ((count + 1) / 3 != 1)
@@ -842,7 +816,6 @@ static ssize_t grip_mode_store(struct device *dev,
 				__func__);
 	}
 
-	fts_set_bus_ref(info, FTS_BUS_REF_SYSFS, false);
 	return count;
 }
 #endif
@@ -887,13 +860,6 @@ static ssize_t charger_mode_store(struct device *dev,
 	int res;
 	struct fts_ts_info *info = dev_get_drvdata(dev);
 
-	if (fts_set_bus_ref(info, FTS_BUS_REF_SYSFS, true) < 0) {
-		res = ERROR_BUS_WR;
-		dev_err(dev, "%s: bus is not accessible.\n", __func__);
-		fts_set_bus_ref(info, FTS_BUS_REF_SYSFS, false);
-		return count;
-	}
-
 /* in case of a different elaboration of the input, just modify this
   * initial part of the code according to customer needs */
 	if ((count + 1) / 3 != 1)
@@ -922,7 +888,6 @@ static ssize_t charger_mode_store(struct device *dev,
 
 	}
 
-	fts_set_bus_ref(info, FTS_BUS_REF_SYSFS, false);
 	return count;
 }
 #endif
@@ -965,13 +930,6 @@ static ssize_t glove_mode_store(struct device *dev,
 	int res;
 	struct fts_ts_info *info = dev_get_drvdata(dev);
 
-	if (fts_set_bus_ref(info, FTS_BUS_REF_SYSFS, true) < 0) {
-		res = ERROR_BUS_WR;
-		dev_err(dev, "%s: bus is not accessible.\n", __func__);
-		fts_set_bus_ref(info, FTS_BUS_REF_SYSFS, false);
-		return count;
-	}
-
 /* in case of a different elaboration of the input, just modify this
   * initial part of the code according to customer needs */
 	if ((count + 1) / 3 != 1)
@@ -998,7 +956,6 @@ static ssize_t glove_mode_store(struct device *dev,
 				__func__);
 	}
 
-	fts_set_bus_ref(info, FTS_BUS_REF_SYSFS, false);
 	return count;
 }
 #endif
@@ -1052,13 +1009,6 @@ static ssize_t cover_mode_store(struct device *dev,
 	int res;
 	struct fts_ts_info *info = dev_get_drvdata(dev);
 
-	if (fts_set_bus_ref(info, FTS_BUS_REF_SYSFS, true) < 0) {
-		res = ERROR_BUS_WR;
-		dev_err(dev, "%s: bus is not accessible.\n", __func__);
-		fts_set_bus_ref(info, FTS_BUS_REF_SYSFS, false);
-		return count;
-	}
-
 /* in case of a different elaboration of the input, just modify this
   * initial part of the code according to customer needs */
 	if ((count + 1) / 3 != 1)
@@ -1085,7 +1035,6 @@ static ssize_t cover_mode_store(struct device *dev,
 				__func__);
 	}
 
-	fts_set_bus_ref(info, FTS_BUS_REF_SYSFS, false);
 	return count;
 }
 #endif
@@ -1197,14 +1146,6 @@ static ssize_t gesture_mask_show(struct device *dev,
 	int count = 0, res, temp;
 	struct fts_ts_info *info = dev_get_drvdata(dev);
 
-	if (fts_set_bus_ref(info, FTS_BUS_REF_SYSFS, true) < 0) {
-		res = ERROR_BUS_WR;
-		dev_err(dev, "%s: bus is not accessible.\n", __func__);
-		scnprintf(buf, PAGE_SIZE, "{ %08X }\n", res);
-		fts_set_bus_ref(info, FTS_BUS_REF_SYSFS, false);
-		return count;
-	}
-
 	if (mask[0] == 0) {
 		res = ERROR_OP_NOT_ALLOW;
 		dev_err(dev, "%s: Call before echo enable/disable xx xx .... > gesture_mask with a correct number of parameters! ERROR %08X\n",
@@ -1230,7 +1171,6 @@ static ssize_t gesture_mask_show(struct device *dev,
 			   PAGE_SIZE - count, "{ %08X }\n", res);
 	mask[0] = 0;
 
-	fts_set_bus_ref(info, FTS_BUS_REF_SYSFS, false);
 	return count;
 }
 
@@ -1325,13 +1265,6 @@ static ssize_t gesture_mask_store(struct device *dev,
 	int res;
 	struct fts_ts_info *info = dev_get_drvdata(dev);
 
-	if (fts_set_bus_ref(info, FTS_BUS_REF_SYSFS, true) < 0) {
-		res = ERROR_BUS_WR;
-		dev_err(dev, "%s: bus is not accessible.\n", __func__);
-		fts_set_bus_ref(info, FTS_BUS_REF_SYSFS, false);
-		return count;
-	}
-
 	if ((count + 1) / 3 < 2 || (count + 1) / 3 > GESTURE_MASK_SIZE + 1) {
 		dev_err(dev, "%s: Number of bytes of parameter wrong! %d < or > (enable/disable + at least one gestureID or max %d bytes)\n",
 			__func__, (count + 1) / 3, GESTURE_MASK_SIZE);
@@ -1385,7 +1318,6 @@ END:
 		info->gesture_enabled = temp;
 	res = fts_mode_handler(info, 0);
 
-	fts_set_bus_ref(info, FTS_BUS_REF_SYSFS, false);
 	return count;
 }
 
@@ -1921,15 +1853,6 @@ static ssize_t stm_fts_cmd_read(struct file *fp, struct kobject *kobj,
 	if (!mutex_trylock(&info->diag_cmd_lock)) {
 		dev_err(dev, "%s: Blocking concurrent access\n", __func__);
 		return -EBUSY;
-	}
-
-	if (fts_set_bus_ref(info, FTS_BUS_REF_SYSFS, true) < 0) {
-		res = ERROR_BUS_WR;
-		dev_err(dev, "%s: bus is not accessible.\n", __func__);
-		scnprintf(buf, PAGE_SIZE, "{ %08X }\n", res);
-		fts_set_bus_ref(info, FTS_BUS_REF_SYSFS, false);
-		mutex_unlock(&info->diag_cmd_lock);
-		return 0;
 	}
 
 	if (info->numberParameters >= 1) {
@@ -2531,7 +2454,6 @@ END:
 	 * just doing a cat */
 	/* dev_err(dev, "numberParameters = %d\n", info->numberParameters); */
 
-	fts_set_bus_ref(info, FTS_BUS_REF_SYSFS, false);
 	mutex_unlock(&info->diag_cmd_lock);
 
 	info->stm_fts_cmd_buff_len = index;
@@ -2568,16 +2490,12 @@ static ssize_t autotune_store(struct device *dev,
 		goto err_args;
 	}
 
-	fts_set_bus_ref(info, FTS_BUS_REF_SYSFS, true);
-
 	ret = production_test_main(info, info->board->limits_name, 1,
 				   SPECIAL_FULL_PANEL_INIT, MP_FLAG_BOOT);
 
 	cleanUp(info, true);
 
 	info->autotune_stat = ret;
-
-	fts_set_bus_ref(info, FTS_BUS_REF_SYSFS, false);
 
 err_args:
 
@@ -2605,8 +2523,6 @@ static ssize_t infoblock_getdata_show(struct device *dev,
 	u8 *data = NULL;
 	int addr = 0;
 	int i = 0;
-
-	fts_set_bus_ref(info, FTS_BUS_REF_SYSFS, true);
 
 	res = fts_writeReadU8UX(info, FTS_CMD_HW_REG_R, ADDR_SIZE_HW_REG,
 				ADDR_FLASH_STATUS, &control_reg,
@@ -2768,8 +2684,6 @@ END:
 	if (control_reg != flash_status)
 		fts_writeU8UX(info, FTS_CMD_HW_REG_W, ADDR_SIZE_HW_REG,
 			      ADDR_FLASH_STATUS, &control_reg, 1);
-
-	fts_set_bus_ref(info, FTS_BUS_REF_SYSFS, false);
 
 	return count;
 }
@@ -4521,14 +4435,6 @@ static irqreturn_t fts_interrupt_handler(int irq, void *handle)
 	struct touch_offload_frame *frame = NULL;
 #endif
 
-	/* It is possible that interrupts were disabled while the handler is
-	 * executing, before acquiring the mutex. If so, simply return.
-	 */
-	if (fts_set_bus_ref(info, FTS_BUS_REF_IRQ, true) < 0) {
-		fts_set_bus_ref(info, FTS_BUS_REF_IRQ, false);
-		return IRQ_HANDLED;
-	}
-
 	/* prevent CPU from entering deep sleep */
 	cpu_latency_qos_update_request(&info->pm_qos_req, 100);
 
@@ -4616,7 +4522,6 @@ static irqreturn_t fts_interrupt_handler(int irq, void *handle)
 #endif
 
 	cpu_latency_qos_update_request(&info->pm_qos_req, PM_QOS_DEFAULT_VALUE);
-	fts_set_bus_ref(info, FTS_BUS_REF_IRQ, false);
 	return IRQ_HANDLED;
 }
 
@@ -5170,9 +5075,7 @@ static void fts_fw_update_auto(struct work_struct *work)
 	struct fts_ts_info *info = container_of(fwu_work, struct fts_ts_info,
 						fwu_work);
 
-	fts_set_bus_ref(info, FTS_BUS_REF_FW_UPDATE, true);
 	fts_fw_update(info);
-	fts_set_bus_ref(info, FTS_BUS_REF_FW_UPDATE, false);
 }
 
 /**
@@ -5768,7 +5671,6 @@ static void fts_resume_work(struct work_struct *work)
 
 	fts_enableInterrupt(info, true);
 	info->sensor_sleep = false;
-	complete_all(&info->bus_resumed);
 }
 
 /**
@@ -5781,7 +5683,6 @@ static void fts_suspend_work(struct work_struct *work)
 	info = container_of(work, struct fts_ts_info, suspend_work);
 	if (info->sensor_sleep) return;
 
-	reinit_completion(&info->bus_resumed);
 	info->sensor_sleep = true;
 	fts_enableInterrupt(info, false);
 	info->resume_bit = 0;
@@ -5795,75 +5696,6 @@ static void fts_suspend_work(struct work_struct *work)
 #endif
 
 	__pm_relax(info->wakesrc);
-}
-/** @}*/
-
-
-static void fts_aggregate_bus_state(struct fts_ts_info *info)
-{
-	dev_dbg(info->dev, "%s: bus_refmask = 0x%02X.\n", __func__,
-		 info->bus_refmask);
-
-	/* Complete or cancel any outstanding transitions */
-	cancel_work_sync(&info->suspend_work);
-	cancel_work_sync(&info->resume_work);
-
-	if ((info->bus_refmask == 0 && info->sensor_sleep) ||
-	    (info->bus_refmask != 0 && !info->sensor_sleep))
-		return;
-
-	if (info->bus_refmask == 0) {
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
-		cancel_delayed_work_sync(&info->offload_resume_work);
-#endif
-		info->enable_palm_data_dump = false;
-		cancel_delayed_work_sync(&info->palm_data_dump_work);
-		queue_work(info->event_wq, &info->suspend_work);
-	} else
-		queue_work(info->event_wq, &info->resume_work);
-}
-
-int fts_set_bus_ref(struct fts_ts_info *info, u16 ref, bool enable)
-{
-	int result = OK;
-
-	mutex_lock(&info->bus_mutex);
-
-	if ((enable && (info->bus_refmask & ref)) ||
-	    (!enable && !(info->bus_refmask & ref))) {
-		dev_dbg(info->dev, "%s: reference is unexpectedly set: mask=0x%04X, ref=0x%04X, enable=%d.\n",
-			__func__, info->bus_refmask, ref, enable);
-		mutex_unlock(&info->bus_mutex);
-		return ERROR_OP_NOT_ALLOW;
-	}
-
-	if (enable) {
-		/* IRQs can only keep the bus active. IRQs received while the
-		 * bus is transferred to SLPI should be ignored.
-		 */
-		if (ref == FTS_BUS_REF_IRQ && info->bus_refmask == 0)
-			result = ERROR_OP_NOT_ALLOW;
-		else
-			info->bus_refmask |= ref;
-	} else
-		info->bus_refmask &= ~ref;
-	fts_aggregate_bus_state(info);
-
-	mutex_unlock(&info->bus_mutex);
-
-	/* When triggering a wake, wait up to one second to resume. SCREEN_ON
-	 * and IRQ references do not need to wait.
-	 */
-	if (enable && ref != FTS_BUS_REF_SCREEN_ON && ref != FTS_BUS_REF_IRQ) {
-		wait_for_completion_timeout(&info->bus_resumed, HZ);
-		if (info->sensor_sleep) {
-			dev_err(info->dev, "%s: Failed to wake the touch bus: mask=0x%04X, ref=0x%04X, enable=%d.\n",
-			       __func__, info->bus_refmask, ref, enable);
-			result = ERROR_TIMEOUT;
-		}
-	}
-
-	return result;
 }
 
 /**
@@ -6448,9 +6280,6 @@ static int fts_probe(struct spi_device *client)
 	INIT_WORK(&info->resume_work, fts_resume_work);
 	INIT_WORK(&info->suspend_work, fts_suspend_work);
 
-	init_completion(&info->bus_resumed);
-	complete_all(&info->bus_resumed);
-
 	dev_info(info->dev, "SET Input Device Property:\n");
 	info->dev = &info->client->dev;
 	info->input_dev = input_allocate_device();
@@ -6546,11 +6375,7 @@ static int fts_probe(struct spi_device *client)
 	mutex_init(&info->diag_cmd_lock);
 
 	mutex_init(&info->input_report_mutex);
-	mutex_init(&info->bus_mutex);
 	mutex_init(&info->io_mutex);
-
-	/* Assume screen is on throughout probe */
-	info->bus_refmask = FTS_BUS_REF_SCREEN_ON;
 
 #ifdef GESTURE_MODE
 	mutex_init(&gestureMask_mutex);
@@ -6819,9 +6644,6 @@ static int fts_remove(struct spi_device *client)
 
 	struct fts_ts_info *info = dev_get_drvdata(&(client->dev));
 
-	/* Force the bus active throughout removal of the client */
-	fts_set_bus_ref(info, FTS_BUS_REF_FORCE_ACTIVE, true);
-
 	dev_info(info->dev, "%s\n", __func__);
 
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_TBN)
@@ -6885,21 +6707,6 @@ static int fts_remove(struct spi_device *client)
 #ifdef CONFIG_PM
 static int fts_pm_suspend(struct device *dev)
 {
-	struct fts_ts_info *info = dev_get_drvdata(dev);
-
-	if (info->bus_refmask)
-		dev_warn(info->dev, "%s: bus_refmask 0x%X\n", __func__, info->bus_refmask);
-
-	if (info->resume_bit == 1 || info->sensor_sleep == false) {
-		dev_warn(info->dev, "%s: can't suspend because touch bus is in use!\n",
-			__func__);
-		if (info->bus_refmask == FTS_BUS_REF_BUGREPORT) {
-			fts_set_bus_ref(info, FTS_BUS_REF_BUGREPORT, false);
-			__pm_relax(info->wakesrc);
-		}
-		return -EBUSY;
-	}
-
 	return 0;
 }
 
