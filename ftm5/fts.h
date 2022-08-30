@@ -40,10 +40,6 @@
 #include <touch_offload.h>
 #endif
 #include <linux/pm_qos.h>
-#include <drm/drm_bridge.h>
-#include <drm/drm_device.h>
-#include <drm/drm_encoder.h>
-#include <drm/drm_modes.h>
 #include <drm/drm_panel.h>
 #include "fts_lib/ftsSoftware.h"
 #include "fts_lib/ftsHardware.h"
@@ -879,12 +875,6 @@ struct fts_ts_info {
 
 	struct fts_disp_extinfo extinfo;	/* Display extended info */
 
-	struct drm_bridge panel_bridge;
-	struct drm_connector *connector;
-	bool is_panel_lp_mode;
-#ifdef DYNAMIC_REFRESH_RATE
-	int display_refresh_rate;	/* Display rate in Hz */
-#endif
 	bool sensor_sleep;		/* True if suspend called */
 	struct wakeup_source *wakesrc;	/* Wake Lock struct */
 

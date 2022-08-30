@@ -58,11 +58,6 @@
 #include <linux/input/mt.h>
 #endif
 
-#include <drm/drm_panel.h>
-#include <video/display_timing.h>
-#include <samsung/exynos_drm_connector.h>
-#include <samsung/panel/panel-samsung-drv.h>
-
 #include "fts.h"
 #include "fts_lib/ftsCompensation.h"
 #include "fts_lib/ftsCore.h"
@@ -117,8 +112,6 @@ static int fts_mode_handler(struct fts_ts_info *info, int force);
 static void fts_pinctrl_setup(struct fts_ts_info *info, bool active);
 
 static int fts_chip_initialization(struct fts_ts_info *info, int init_type);
-static int register_panel_bridge(struct fts_ts_info *info);
-static void unregister_panel_bridge(struct drm_bridge *bridge);
 
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
 static void fts_offload_push_coord_frame(struct fts_ts_info *info);
@@ -5161,14 +5154,6 @@ out:
 			error);
 	}
 
-	/* Align the touch and display status during boot. */
-	if (!IS_ERR_OR_NULL(info->board->panel)) {
-		struct exynos_panel *ctx = container_of(info->board->panel,
-							struct exynos_panel,
-							panel);
-		fts_set_bus_ref(info, FTS_BUS_REF_SCREEN_ON, ctx->enabled);
-	}
-
 	dev_err(info->dev, "Fw Update Finished! error = %08X\n", error);
 	return error;
 }
@@ -5435,7 +5420,6 @@ static int fts_init_sensing(struct fts_ts_info *info)
 {
 	int error = 0;
 
-	error |= register_panel_bridge(info);
 	error |= fts_interrupt_install(info);	  /* register event handler */
 	error |= fts_mode_handler(info, 0);	  /* enable the features and
 						   * sensing */
@@ -5882,125 +5866,6 @@ int fts_set_bus_ref(struct fts_ts_info *info, u16 ref, bool enable)
 	return result;
 }
 
-struct drm_connector *get_bridge_connector(struct drm_bridge *bridge)
-{
-	struct drm_connector *connector;
-	struct drm_connector_list_iter conn_iter;
-
-	drm_connector_list_iter_begin(bridge->dev, &conn_iter);
-	drm_for_each_connector_iter(connector, &conn_iter) {
-		if (connector->encoder == bridge->encoder)
-			break;
-	}
-	drm_connector_list_iter_end(&conn_iter);
-	return connector;
-}
-
-static bool bridge_is_lp_mode(struct drm_connector *connector)
-{
-	if (connector && connector->state) {
-		struct exynos_drm_connector_state *s =
-			to_exynos_connector_state(connector->state);
-		return s->exynos_mode.is_lp_mode;
-	}
-	return false;
-}
-
-static void panel_bridge_enable(struct drm_bridge *bridge)
-{
-	struct fts_ts_info *info =
-			container_of(bridge, struct fts_ts_info, panel_bridge);
-
-	dev_dbg(info->dev, "%s\n", __func__);
-	if (!info->is_panel_lp_mode)
-		fts_set_bus_ref(info, FTS_BUS_REF_SCREEN_ON, true);
-}
-
-static void panel_bridge_disable(struct drm_bridge *bridge)
-{
-	struct fts_ts_info *info =
-			container_of(bridge, struct fts_ts_info, panel_bridge);
-
-	if (bridge->encoder && bridge->encoder->crtc) {
-		const struct drm_crtc_state *crtc_state = bridge->encoder->crtc->state;
-
-		if (drm_atomic_crtc_effectively_active(crtc_state))
-			return;
-	}
-
-	dev_dbg(info->dev, "%s\n", __func__);
-	fts_set_bus_ref(info, FTS_BUS_REF_SCREEN_ON, false);
-}
-
-static void panel_bridge_mode_set(struct drm_bridge *bridge,
-				  const struct drm_display_mode *mode,
-				  const struct drm_display_mode *adjusted_mode)
-{
-	struct fts_ts_info *info =
-			container_of(bridge, struct fts_ts_info, panel_bridge);
-
-	dev_dbg(info->dev, "%s\n", __func__);
-
-	if (!info->connector || !info->connector->state) {
-		dev_info(info->dev, "%s: Get bridge connector.\n", __func__);
-		info->connector = get_bridge_connector(bridge);
-	}
-
-	info->is_panel_lp_mode = bridge_is_lp_mode(info->connector);
-	fts_set_bus_ref(info, FTS_BUS_REF_SCREEN_ON, !info->is_panel_lp_mode);
-
-#ifdef DYNAMIC_REFRESH_RATE
-	if (adjusted_mode &&
-	    info->display_refresh_rate != adjusted_mode->vrefresh) {
-		info->display_refresh_rate = adjusted_mode->vrefresh;
-		if (gpio_is_valid(info->board->disp_rate_gpio))
-			gpio_set_value(info->board->disp_rate_gpio,
-				       (info->display_refresh_rate == 90));
-		dev_info(info->dev, "Refresh rate changed to %d Hz.\n",
-			info->display_refresh_rate);
-	}
-#endif
-}
-
-static const struct drm_bridge_funcs panel_bridge_funcs = {
-	.enable = panel_bridge_enable,
-	.disable = panel_bridge_disable,
-	.mode_set = panel_bridge_mode_set,
-};
-
-static int register_panel_bridge(struct fts_ts_info *info)
-{
-
-#ifdef CONFIG_OF
-	info->panel_bridge.of_node = info->client->dev.of_node;
-#endif
-	info->panel_bridge.funcs = &panel_bridge_funcs;
-	drm_bridge_add(&info->panel_bridge);
-
-	return 0;
-}
-
-static void unregister_panel_bridge(struct drm_bridge *bridge)
-{
-	struct drm_bridge *node;
-
-	drm_bridge_remove(bridge);
-
-	if (!bridge->dev) /* not attached */
-		return;
-
-	drm_modeset_lock(&bridge->dev->mode_config.connection_mutex, NULL);
-	list_for_each_entry(node, &bridge->encoder->bridge_chain, chain_node)
-		if (node == bridge) {
-			if (bridge->funcs->detach)
-				bridge->funcs->detach(bridge);
-			list_del(&bridge->chain_node);
-			break;
-		}
-	drm_modeset_unlock(&bridge->dev->mode_config.connection_mutex);
-	bridge->dev = NULL;
-}
-
 /**
   * From the name of the power regulator get/put the actual regulator structs
   * (copying their references into fts_ts_info variable)
@@ -6306,7 +6171,6 @@ static int parse_dt(struct device *dev, struct fts_hw_platform_data *bdata)
 	int index;
 	struct of_phandle_args panelmap;
 	struct drm_panel *panel = NULL;
-	struct display_timing timing;
 	struct device_node *np = dev->of_node;
 	u32 coords[2];
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
@@ -6391,11 +6255,7 @@ static int parse_dt(struct device *dev, struct fts_hw_platform_data *bdata)
 	}
 #endif
 
-	if (panel && panel->funcs && panel->funcs->get_timings &&
-	    panel->funcs->get_timings(panel, 1, &timing) > 0) {
-		coords[0] = timing.hactive.max - 1;
-		coords[1] = timing.vactive.max - 1;
-	} else if (of_property_read_u32_array(np, "st,max-coords", coords, 2)) {
+	if (of_property_read_u32_array(np, "st,max-coords", coords, 2)) {
 		dev_err(dev, "st,max-coords not found, using 1440x2560\n");
 		coords[0] = 1440 - 1;
 		coords[1] = 2560 - 1;
@@ -6916,8 +6776,6 @@ ProbeErrorExit_7:
 	if(info->touchsim.wq)
 		destroy_workqueue(info->touchsim.wq);
 
-	unregister_panel_bridge(&info->panel_bridge);
-
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
 	touch_offload_cleanup(&info->offload);
 #endif
@@ -7005,8 +6863,6 @@ static int fts_remove(struct spi_device *client)
 #endif
 
 	cpu_latency_qos_remove_request(&info->pm_qos_req);
-
-	unregister_panel_bridge(&info->panel_bridge);
 
 	/* unregister the device */
 	input_unregister_device(info->input_dev);
