@@ -6025,16 +6025,6 @@ static int fts_set_gpio(struct fts_ts_info *info)
 		goto err_gpio_irq;
 	}
 
-#ifdef DYNAMIC_REFRESH_RATE
-	if (gpio_is_valid(bdata->disp_rate_gpio)) {
-		retval = fts_gpio_setup(bdata->disp_rate_gpio, true, 1,
-					(info->display_refresh_rate == 90));
-		if (retval < 0)
-			dev_err(info->dev, "%s: Failed to configure disp_rate_gpio\n",
-				__func__);
-	}
-#endif
-
 	if (bdata->reset_gpio >= 0) {
 		retval = fts_gpio_setup(bdata->reset_gpio, true, 1, 0);
 		if (retval < 0) {
@@ -6221,13 +6211,6 @@ static int parse_dt(struct device *dev, struct fts_hw_platform_data *bdata)
 		dev_info(dev, "reset_gpio = %d\n", bdata->reset_gpio);
 	} else
 		bdata->reset_gpio = GPIO_NOT_DEFINED;
-
-	if (of_property_read_bool(np, "st,disp-rate-gpio")) {
-		bdata->disp_rate_gpio =
-		    of_get_named_gpio_flags(np, "st,disp-rate-gpio", 0, NULL);
-		dev_info(dev, "disp_rate_gpio = %d\n", bdata->disp_rate_gpio);
-	} else
-		bdata->disp_rate_gpio = GPIO_NOT_DEFINED;
 
 	bdata->auto_fw_update = true;
 	if (of_property_read_bool(np, "st,disable-auto-fw-update")) {
@@ -6889,8 +6872,6 @@ static int fts_remove(struct spi_device *client)
 		gpio_free(info->board->irq_gpio);
 	if (gpio_is_valid(info->board->reset_gpio))
 		gpio_free(info->board->reset_gpio);
-	if (gpio_is_valid(info->board->disp_rate_gpio))
-		gpio_free(info->board->disp_rate_gpio);
 
 	/* free any extinfo */
 	kfree(info->extinfo.data);

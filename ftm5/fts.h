@@ -299,7 +299,6 @@ struct fts_hw_platform_data {
 	int irq_gpio;	/* /< number of the gpio associated to the interrupt pin
 			 * */
 	int reset_gpio;	/* /< number of the gpio associated to the reset pin */
-	int disp_rate_gpio; /* disp_rate gpio: LOW=60Hz, HIGH=90Hz */
 	const char *fw_name;
 	const char *limits_name;
 	const char *device_name;
