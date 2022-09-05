@@ -33,12 +33,6 @@
 #define _LINUX_FTS_I2C_H_
 
 #include <linux/device.h>
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
-#include <heatmap.h>
-#endif
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
-#include <touch_offload.h>
-#endif
 #include <linux/pm_qos.h>
 #include <drm/drm_panel.h>
 #include "fts_lib/ftsSoftware.h"
@@ -210,35 +204,6 @@
 
 /* #define SKIP_PRESSURE */
 
-/**@}*/
-/*********************************************************/
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
-/* **** LOCAL HEATMAP FEATURE *** */
-#define LOCAL_HEATMAP_WIDTH 7
-#define LOCAL_HEATMAP_HEIGHT 7
-#define LOCAL_HEATMAP_MODE 0xC1
-
-struct heatmap_report {
-	uint8_t prefix; /* always should be 0xA0 */
-	uint8_t mode; /* mode should be 0xC1 for heatmap */
-
-	uint16_t counter; /* LE order, should increment on each heatmap read */
-	int8_t offset_x;
-	uint8_t size_x;
-	int8_t offset_y;
-	uint8_t size_y;
-	/* data is in LE order; order should be enforced after data is read */
-	strength_t data[LOCAL_HEATMAP_WIDTH * LOCAL_HEATMAP_HEIGHT];
-} __attribute__((packed));
-/* **** END **** */
-
-struct heatmap_data {
-	ktime_t timestamp;
-	uint16_t size_x;
-	uint16_t size_y;
-	uint8_t *data;
-} __attribute__((packed));
-#endif
 /*
   * Configuration mode
   *
@@ -313,15 +278,11 @@ struct fts_hw_platform_data {
 	bool sensor_inverted_x;
 	bool sensor_inverted_y;
 	bool tx_rx_dir_swap; /* Set as TRUE if Tx direction is same as x-axis. */
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
-	bool heatmap_mode_full_init;
-#endif
+
 	struct drm_panel *panel;
 	u32 initial_panel_index;
 	u32 *force_pi_cfg_ver;
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
-	u32 offload_id;
-#endif
+
 	u8 fw_grip_area;
 };
 
@@ -346,19 +307,6 @@ typedef enum {
 	FTS_MF_FILTERED_LOCKED	= 2
 } motion_filter_state_t;
 
-/* Heatmap mode selection
- * FTS_HEATMAP_OFF	- no data read
- * FTS_HEATMAP_PARTIAL	- read partial frame
- *			(LOCAL_HEATMAP_WIDTH * LOCAL_HEATMAP_HEIGHT)
- * FTS_HEATMAP_FULL	- read full mutual sense strength frame
- */
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
-enum {
-	FTS_HEATMAP_OFF		= 0,
-	FTS_HEATMAP_PARTIAL	= 1,
-	FTS_HEATMAP_FULL	= 2
-};
-#endif
 /*
   * Forward declaration
   */
@@ -818,16 +766,6 @@ struct fts_ts_info {
 						/* suspend, resume threads */
 
 	struct pm_qos_request pm_qos_req;
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
-	struct v4l2_heatmap v4l2;
-	struct heatmap_data mutual_strength_heatmap;
-#endif
-
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_OFFLOAD)
-	struct touch_offload_context offload;
-	struct delayed_work offload_resume_work;
-	int touch_offload_active_coords;
-#endif
 
 	bool enable_palm_data_dump;
 	struct delayed_work palm_data_dump_work;
@@ -883,10 +821,7 @@ struct fts_ts_info {
 	int stylus_enabled;	/* Stylus mode */
 	int cover_enabled;	/* Cover mode */
 	int grip_enabled;	/* Grip mode */
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_HEATMAP)
-	int heatmap_mode;	/* heatmap mode*/
-	bool v4l2_mutual_strength_updated;
-#endif
+
 	/* Stop changing motion filter and keep fw design */
 	bool use_default_mf;
 	/* Motion filter finite state machine (FSM) state */
