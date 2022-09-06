@@ -42,9 +42,11 @@
 #include <touch_bus_negotiator.h>
 #endif
 
-#include <linux/proc_fs.h>
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+#include <goog_touch_interface.h>
+#endif
 
-#undef DYNAMIC_REFRESH_RATE
+#include <linux/proc_fs.h>
 
 /****************** CONFIGURATION SECTION ******************/
 /** @defgroup conf_section	 Driver Configuration Section
@@ -67,10 +69,6 @@
 #define PINCTRL_STATE_ACTIVE    "pmx_ts_active"
 #define PINCTRL_STATE_SUSPEND   "pmx_ts_suspend"
 #define PINCTRL_STATE_RELEASE   "pmx_ts_release"
-
-#define DRIVER_TEST	/* /< if defined allow to use and test special functions
-			  * of the driver and fts_lib from command shell
-			  * (useful for enginering/debug operations) */
 
 /* If both COMPUTE_INIT_METHOD and PRE_SAVED_METHOD are not defined,
  * driver will be automatically configured as GOLDEN_VALUE_METHOD
@@ -267,7 +265,6 @@ struct fts_hw_platform_data {
 	const char *fw_name;
 	const char *limits_name;
 	const char *device_name;
-	bool sensor_inverted;
 	int x_axis_max;
 	int y_axis_max;
 	int udfps_x;
@@ -811,9 +808,6 @@ struct fts_ts_info {
 	bool sensor_sleep;		/* True if suspend called */
 	struct wakeup_source *wakesrc;	/* Wake Lock struct */
 
-	/* input lock */
-	struct mutex input_report_mutex;	/* Mutex for input report */
-
 	/* switches for features */
 	int gesture_enabled;	/* Gesture during suspend */
 	int glove_enabled;	/* Glove mode */
@@ -833,6 +827,13 @@ struct fts_ts_info {
 
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_TBN)
 	u32 tbn_register_mask;
+#endif
+
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+	struct goog_touch_interface *gti;
+#else
+	/* input lock */
+	struct mutex input_report_mutex;	/* Mutex for input report */
 #endif
 
 	/* Allow only one thread to execute diag command code*/

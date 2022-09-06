@@ -122,6 +122,27 @@ void release_all_touches(struct fts_ts_info *info)
 	unsigned int type = MT_TOOL_FINGER;
 	int i;
 
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+	goog_input_lock(info->gti);
+	goog_input_set_timestamp(info->gti, info->input_dev, KTIME_RELEASE_ALL);
+
+	for (i = 0; i < TOUCH_ID_MAX; i++) {
+#ifdef STYLUS_MODE
+		if (test_bit(i, &info->stylus_id))
+			type = MT_TOOL_PEN;
+		else
+			type = MT_TOOL_FINGER;
+#endif
+		goog_input_mt_slot(info->gti, info->input_dev, i);
+		goog_input_report_abs(info->gti, info->input_dev, ABS_MT_PRESSURE, 0);
+		goog_input_mt_report_slot_state(info->gti, info->input_dev, type, 0);
+		goog_input_report_abs(info->gti, info->input_dev, ABS_MT_TRACKING_ID, -1);
+	}
+	goog_input_report_key(info->gti, info->input_dev, BTN_TOUCH, 0);
+	goog_input_sync(info->gti, info->input_dev);
+
+	goog_input_unlock(info->gti);
+#else
 	mutex_lock(&info->input_report_mutex);
 
 	for (i = 0; i < TOUCH_ID_MAX; i++) {
@@ -140,6 +161,7 @@ void release_all_touches(struct fts_ts_info *info)
 	input_sync(info->input_dev);
 
 	mutex_unlock(&info->input_report_mutex);
+#endif
 
 	info->touch_id = 0;
 	info->palm_touch_mask = 0;
@@ -2742,8 +2764,14 @@ static struct attribute *fts_attr_group[] = {
 	&dev_attr_default_mf.attr,
 	NULL,
 };
-/** @}*/
-/** @}*/
+
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+static int gti_default_handler(void *private_data, enum gti_cmd_type cmd_type,
+	struct gti_union_cmd_data *cmd)
+{
+	return -ESRCH;
+}
+#endif
 
 
 /**
@@ -2768,12 +2796,10 @@ static struct attribute *fts_attr_group[] = {
   */
 void fts_input_report_key(struct fts_ts_info *info, int key_code)
 {
-	mutex_lock(&info->input_report_mutex);
 	input_report_key(info->input_dev, key_code, 1);
 	input_sync(info->input_dev);
 	input_report_key(info->input_dev, key_code, 0);
 	input_sync(info->input_dev);
-	mutex_unlock(&info->input_report_mutex);
 }
 
 /**
@@ -2882,12 +2908,9 @@ static bool fts_enter_pointer_event_handler(struct fts_ts_info *info, unsigned
 	if (!info->resume_bit)
 		goto no_report;
 
-	mutex_lock(&info->input_report_mutex);
-
 	touchType = event[1] & 0x0F;
 	touchId = (event[1] & 0xF0) >> 4;
 	if (touchId >= TOUCH_ID_MAX) {
-		mutex_unlock(&info->input_report_mutex);
 		dev_err(info->dev, "%s : Invalid touch ID = %d ! No Report...\n",
 			__func__, touchId);
 		goto no_report;
@@ -2974,12 +2997,27 @@ static bool fts_enter_pointer_event_handler(struct fts_ts_info *info, unsigned
 		break;
 
 	default:
-		mutex_unlock(&info->input_report_mutex);
 		dev_err(info->dev, "%s : Invalid touch type = %d ! No Report...\n",
 			__func__, touchType);
 		goto no_report;
 	}
 
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+	goog_input_mt_slot(info->gti, info->input_dev, touchId);
+	goog_input_report_key(info->gti, info->input_dev, BTN_TOUCH, touch_condition);
+	goog_input_mt_report_slot_state(info->gti, info->input_dev, tool, 1);
+	goog_input_report_abs(info->gti, info->input_dev, ABS_MT_POSITION_X, x);
+	goog_input_report_abs(info->gti, info->input_dev, ABS_MT_POSITION_Y, y);
+	goog_input_report_abs(info->gti, info->input_dev, ABS_MT_TOUCH_MAJOR, major);
+	goog_input_report_abs(info->gti, info->input_dev, ABS_MT_TOUCH_MINOR, minor);
+#ifndef SKIP_PRESSURE
+	goog_input_report_abs(info->gti, info->input_dev, ABS_MT_PRESSURE, z);
+#endif
+
+#ifndef SKIP_DISTANCE
+	goog_input_report_abs(info->gti, info->input_dev, ABS_MT_DISTANCE, distance);
+#endif
+#else
 	input_mt_slot(info->input_dev, touchId);
 	input_report_key(info->input_dev, BTN_TOUCH, touch_condition);
 	input_mt_report_slot_state(info->input_dev, tool, 1);
@@ -2994,11 +3032,11 @@ static bool fts_enter_pointer_event_handler(struct fts_ts_info *info, unsigned
 #ifndef SKIP_DISTANCE
 	input_report_abs(info->input_dev, ABS_MT_DISTANCE, distance);
 #endif
+#endif
 
 	/* dev_info(info->dev, "%s :  Event 0x%02x - ID[%d], (x, y) = (%3d, %3d)
 	 * Size = %d\n",
 	 *	__func__, *event, touchId, x, y, touchType); */
-	mutex_unlock(&info->input_report_mutex);
 
 	return true;
 no_report:
@@ -3016,12 +3054,9 @@ static bool fts_leave_pointer_event_handler(struct fts_ts_info *info, unsigned
 	unsigned int tool = MT_TOOL_FINGER;
 	u8 touchType;
 
-	mutex_lock(&info->input_report_mutex);
-
 	touchType = event[1] & 0x0F;
 	touchId = (event[1] & 0xF0) >> 4;
 	if (touchId >= TOUCH_ID_MAX) {
-		mutex_unlock(&info->input_report_mutex);
 		dev_err(info->dev, "%s : Invalid touch ID = %d ! No Report...\n",
 			__func__, touchId);
 		return false;
@@ -3056,18 +3091,22 @@ static bool fts_leave_pointer_event_handler(struct fts_ts_info *info, unsigned
 		break;
 
 	default:
-		mutex_unlock(&info->input_report_mutex);
 		dev_err(info->dev, "%s : Invalid touch type = %d ! No Report...\n",
 			__func__, touchType);
 		return false;
 	}
 
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+	goog_input_mt_slot(info->gti, info->input_dev, touchId);
+	goog_input_report_abs(info->gti, info->input_dev, ABS_MT_PRESSURE, 0);
+	goog_input_mt_report_slot_state(info->gti, info->input_dev, tool, 0);
+	goog_input_report_abs(info->gti, info->input_dev, ABS_MT_TRACKING_ID, -1);
+#else
 	input_mt_slot(info->input_dev, touchId);
 	input_report_abs(info->input_dev, ABS_MT_PRESSURE, 0);
 	input_mt_report_slot_state(info->input_dev, tool, 0);
 	input_report_abs(info->input_dev, ABS_MT_TRACKING_ID, -1);
-
-	mutex_unlock(&info->input_report_mutex);
+#endif
 
 	return true;
 }
@@ -3853,7 +3892,8 @@ static irqreturn_t fts_interrupt_handler(int irq, void *handle)
 	const unsigned char EVENTS_REMAINING_MASK = 0x1F;
 	unsigned char events_remaining = 0;
 	unsigned char *evt_data;
-	bool processed_pointer_event = false;
+	bool has_pointer_event = false;
+	int event_start_idx = -1;
 
 	/* prevent CPU from entering deep sleep */
 	cpu_latency_qos_update_request(&info->pm_qos_req, 100);
@@ -3876,31 +3916,80 @@ static irqreturn_t fts_interrupt_handler(int irq, void *handle)
 		dev_err(info->dev, "Error (%08X) while reading from FIFO in fts_event_handler\n",
 			error);
 	} else {
+		evt_data = &data[0];
+		if (evt_data[0] == EVT_ID_NOEVENT)
+			goto exit;
+		/*
+		 * Parsing all the events ID and specifically handle the
+		 * EVT_ID_CONTROLLER_READY and EVT_ID_ERROR at first.
+		 */
 		for (count = 0; count < events_remaining + 1; count++) {
 			evt_data = &data[count * FIFO_EVENT_SIZE];
 
-			if (evt_data[0] == EVT_ID_NOEVENT)
+			switch (evt_data[0]) {
+			case EVT_ID_CONTROLLER_READY:
+			case EVT_ID_ERROR:
+				eventId = evt_data[0] >> 4;
+				info->event_dispatch_table[eventId](info, evt_data);
+
+				has_pointer_event = false;
+				event_start_idx = count;
 				break;
+
+			case EVT_ID_ENTER_POINT:
+			case EVT_ID_MOTION_POINT:
+			case EVT_ID_LEAVE_POINT:
+				has_pointer_event = true;
+				break;
+
+			default:
+				break;
+			}
+		}
+
+		/* Only lock input report when there is pointer event. */
+		if (has_pointer_event) {
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+			goog_input_lock(info->gti);
+			goog_input_set_timestamp(info->gti, info->input_dev, info->timestamp);
+#else
+			mutex_lock(&info->input_report_mutex);
+			input_set_timestamp(info->input_dev, info->timestamp);
+#endif
+		}
+
+		/*
+		 * Handle the remaining events except for
+		 * EVT_ID_CONTROLLER_READY and EVT_ID_ERROR.
+		 */
+		for (count = max(event_start_idx + 1, 0); count < events_remaining + 1; count++) {
+			evt_data = &data[count * FIFO_EVENT_SIZE];
 
 			eventId = evt_data[0] >> 4;
 
 			/* Ensure event ID is within bounds */
-			if (eventId < NUM_EVT_ID) {
-				processed_pointer_event |=
-					info->event_dispatch_table[eventId](
-						info, evt_data);
-			}
+			if (eventId < NUM_EVT_ID)
+				info->event_dispatch_table[eventId](info, evt_data);
+		}
+
+		if (has_pointer_event) {
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+			if (info->touch_id == 0)
+				goog_input_report_key(info->gti, info->input_dev, BTN_TOUCH, 0);
+
+			goog_input_sync(info->gti, info->input_dev);
+			goog_input_unlock(info->gti);
+#else
+			if (info->touch_id == 0)
+				input_report_key(info->input_dev, BTN_TOUCH, 0);
+
+			input_sync(info->input_dev);
+			mutex_unlock(&info->input_report_mutex);
+#endif
 		}
 	}
 
-	mutex_lock(&info->input_report_mutex);
-	if (info->touch_id == 0)
-		input_report_key(info->input_dev, BTN_TOUCH, 0);
-
-	input_set_timestamp(info->input_dev, info->timestamp);
-	input_sync(info->input_dev);
-	mutex_unlock(&info->input_report_mutex);
-
+exit:
 	cpu_latency_qos_update_request(&info->pm_qos_req, PM_QOS_DEFAULT_VALUE);
 	return IRQ_HANDLED;
 }
@@ -4469,7 +4558,7 @@ static int fts_interrupt_install(struct fts_ts_info *info)
 		return error;
 	}
 
-	error = request_threaded_irq(info->client->irq, fts_isr,
+	error = goog_request_threaded_irq(info->gti, info->client->irq, fts_isr,
 			fts_interrupt_handler, IRQF_ONESHOT | IRQF_TRIGGER_LOW,
 			FTS_TS_DRV_NAME, info);
 	info->irq_enabled = true;
@@ -4812,7 +4901,11 @@ static void report_cancel_event(struct fts_ts_info *info)
 {
 	dev_info(info->dev, "%s\n", __func__);
 
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+	goog_input_lock(info->gti);
+#else
 	mutex_lock(&info->input_report_mutex);
+#endif
 
 	/* Finger down on UDFPS area. */
 	input_mt_slot(info->input_dev, 0);
@@ -4842,7 +4935,11 @@ static void report_cancel_event(struct fts_ts_info *info)
 	input_report_key(info->input_dev, BTN_TOUCH, 0);
 	input_sync(info->input_dev);
 
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+	goog_input_unlock(info->gti);
+#else
 	mutex_unlock(&info->input_report_mutex);
+#endif
 }
 
 /* Check the finger status on long press gesture area. */
@@ -5387,6 +5484,9 @@ static int fts_probe(struct spi_device *client)
 	int retval;
 	int skip_5_1 = 0;
 	u16 bus_type;
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+	struct gti_optional_configuration *options;
+#endif
 
 	dev_info(&client->dev, "%s: driver probe begin!\n", __func__);
 	dev_info(&client->dev, "driver ver. %s\n", FTS_TS_DRV_VERSION);
@@ -5428,11 +5528,6 @@ static int fts_probe(struct spi_device *client)
 
 	info->client = client;
 	info->dev = &info->client->dev;
-
-#ifdef DYNAMIC_REFRESH_RATE
-	/* Set default display refresh rate */
-	info->display_refresh_rate = 60;
-#endif
 
 	dev_set_drvdata(info->dev, info);
 
@@ -5596,9 +5691,11 @@ static int fts_probe(struct spi_device *client)
 	input_set_capability(info->input_dev, EV_KEY, KEY_MENU);
 #endif
 
-	mutex_init(&info->diag_cmd_lock);
-
+#if !IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
 	mutex_init(&info->input_report_mutex);
+#endif
+
+	mutex_init(&info->diag_cmd_lock);
 	mutex_init(&info->io_mutex);
 
 #ifdef GESTURE_MODE
@@ -5710,6 +5807,12 @@ static int fts_probe(struct spi_device *client)
 		INIT_WORK(&(info->touchsim.work), touchsim_work);
 	else
 		dev_err(info->dev, "ERROR: Cannot create touch sim. test work queue\n");
+
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+	options = devm_kzalloc(info->dev, sizeof(struct gti_optional_configuration), GFP_KERNEL);
+	info->gti = goog_touch_interface_probe(
+		info, info->dev, info->input_dev, gti_default_handler, options);
+#endif
 
 	dev_info(info->dev, "Probe Finished!\n");
 
