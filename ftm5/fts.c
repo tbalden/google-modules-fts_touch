@@ -70,8 +70,6 @@
 #include "fts_lib/ftsTime.h"
 #include "fts_lib/ftsTool.h"
 
-#include <goog_touch_interface.h>
-
 /* Touch simulation MT slot */
 #define TOUCHSIM_SLOT_ID		0
 #define TOUCHSIM_TIMER_INTERVAL_NS	8333333
@@ -112,6 +110,8 @@ static int fts_mode_handler(struct fts_ts_info *info, int force);
 static void fts_pinctrl_setup(struct fts_ts_info *info, bool active);
 
 static int fts_chip_initialization(struct fts_ts_info *info, int init_type);
+
+static const struct dev_pm_ops fts_pm_ops;
 
 /**
   * Release all the touches in the linux input subsystem
@@ -1453,9 +1453,6 @@ static void touchsim_work(struct work_struct *work)
 	/* prevent CPU from entering deep sleep */
 	cpu_latency_qos_update_request(&info->pm_qos_req, 100);
 
-	/* Notify the PM core that the wakeup event will take 1 sec */
-	__pm_wakeup_event(info->wakesrc, jiffies_to_msecs(HZ));
-
 	/* get the next touch coordinates */
 	touchsim_refresh_coordinates(touchsim);
 
@@ -2773,7 +2770,6 @@ static int gti_default_handler(void *private_data, enum gti_cmd_type cmd_type,
 }
 #endif
 
-
 /**
   * @defgroup isr Interrupt Service Routine (Event Handler)
   * The most important part of the driver is the ISR (Interrupt Service Routine)
@@ -3895,6 +3891,13 @@ static irqreturn_t fts_interrupt_handler(int irq, void *handle)
 	bool has_pointer_event = false;
 	int event_start_idx = -1;
 
+#if IS_ENABLED(CONFIG_GTI_PM)
+	if (goog_pm_wake_lock(info->gti, GTI_PM_WAKELOCK_TYPE_IRQ, true) < 0) {
+		dev_warn("%s: Touch device already suspended.\n", __func__);
+		return IRQ_HANDLED;
+	}
+#endif
+
 	/* prevent CPU from entering deep sleep */
 	cpu_latency_qos_update_request(&info->pm_qos_req, 100);
 
@@ -3991,6 +3994,9 @@ static irqreturn_t fts_interrupt_handler(int irq, void *handle)
 
 exit:
 	cpu_latency_qos_update_request(&info->pm_qos_req, PM_QOS_DEFAULT_VALUE);
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+	goog_pm_wake_unlock(info->gti, GTI_PM_WAKELOCK_TYPE_IRQ);
+#endif
 	return IRQ_HANDLED;
 }
 
@@ -5004,20 +5010,12 @@ static void check_finger_status(struct fts_ts_info *info)
 }
 
 /**
-  * Resume work function which perform a system reset, clean all the touches
+  * Resume function which perform a system reset, clean all the touches
   * from the linux input system and prepare the ground for enabling the sensing
   */
-static void fts_resume_work(struct work_struct *work)
+static void fts_resume(struct fts_ts_info *info)
 {
-	struct fts_ts_info *info;
-	info = container_of(work, struct fts_ts_info, resume_work);
 	if (!info->sensor_sleep) return;
-	__pm_stay_awake(info->wakesrc);
-
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_TBN)
-	if (info->tbn_register_mask)
-		tbn_request_bus(info->tbn_register_mask);
-#endif
 
 	fts_pinctrl_setup(info, true);
 	if (info->board->udfps_x != 0 && info->board->udfps_y != 0)
@@ -5031,13 +5029,11 @@ static void fts_resume_work(struct work_struct *work)
 }
 
 /**
-  * Suspend work function which clean all the touches from Linux input system
+  * Suspend function which clean all the touches from Linux input system
   * and prepare the ground to disabling the sensing or enter in gesture mode
   */
-static void fts_suspend_work(struct work_struct *work)
+static void fts_suspend(struct fts_ts_info *info)
 {
-	struct fts_ts_info *info;
-	info = container_of(work, struct fts_ts_info, suspend_work);
 	if (info->sensor_sleep) return;
 
 	info->sensor_sleep = true;
@@ -5046,13 +5042,6 @@ static void fts_suspend_work(struct work_struct *work)
 	fts_mode_handler(info, 0);
 	fts_pinctrl_setup(info, false);
 	release_all_touches(info);
-
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_TBN)
-	if (info->tbn_register_mask)
-		tbn_release_bus(info->tbn_register_mask);
-#endif
-
-	__pm_relax(info->wakesrc);
 }
 
 /**
@@ -5205,8 +5194,7 @@ static int fts_gpio_setup(int gpio, bool config, int dir, int state)
 static int fts_set_gpio(struct fts_ts_info *info)
 {
 	int retval;
-	struct fts_hw_platform_data *bdata =
-		info->board;
+	struct fts_hw_platform_data *bdata = info->board;
 
 	retval = fts_gpio_setup(bdata->irq_gpio, true, 0, 0);
 	if (retval < 0) {
@@ -5482,7 +5470,7 @@ static int fts_probe(struct spi_device *client)
 	int error = 0;
 	struct device_node *dp = client->dev.of_node;
 	int retval;
-	int skip_5_1 = 0;
+	int input_dev_free_flag = 0;
 	u16 bus_type;
 #if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
 	struct gti_optional_configuration *options;
@@ -5557,15 +5545,6 @@ static int fts_probe(struct spi_device *client)
 		goto ProbeErrorExit_2;
 	}
 
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_TBN)
-	if (register_tbn(&info->tbn_register_mask)) {
-		error = -ENODEV;
-		dev_err(info->dev, "Failed to register tbn context.");
-		goto ProbeErrorExit_2;
-	}
-	dev_info(info->dev, "tbn_register_mask = %#x.\n", info->tbn_register_mask);
-#endif
-
 	dev_info(info->dev, "SET GPIOS:\n");
 	error = fts_set_gpio(info);
 	if (error < 0) {
@@ -5581,23 +5560,13 @@ static int fts_probe(struct spi_device *client)
 
 	dev_info(info->dev, "SET Event Handler:\n");
 
-	info->wakesrc = wakeup_source_register(NULL, "fts_tp");
-	if (!info->wakesrc) {
-		dev_err(info->dev, "%s: failed to register wakeup source\n", __func__);
-		error = -ENODEV;
-		goto ProbeErrorExit_3;
-
-	}
 	info->event_wq = alloc_workqueue("fts-event-queue", WQ_UNBOUND |
 					 WQ_HIGHPRI | WQ_CPU_INTENSIVE, 1);
 	if (!info->event_wq) {
 		dev_err(info->dev, "ERROR: Cannot create work thread\n");
 		error = -ENOMEM;
-		goto ProbeErrorExit_4;
+		goto ProbeErrorExit_3;
 	}
-
-	INIT_WORK(&info->resume_work, fts_resume_work);
-	INIT_WORK(&info->suspend_work, fts_suspend_work);
 
 	dev_info(info->dev, "SET Input Device Property:\n");
 	info->dev = &info->client->dev;
@@ -5605,7 +5574,7 @@ static int fts_probe(struct spi_device *client)
 	if (!info->input_dev) {
 		dev_err(info->dev, "ERROR: No such input device defined!\n");
 		error = -ENODEV;
-		goto ProbeErrorExit_5;
+		goto ProbeErrorExit_4;
 	}
 	info->input_dev->dev.parent = &client->dev;
 	info->input_dev->name = info->board->device_name;
@@ -5709,10 +5678,10 @@ static int fts_probe(struct spi_device *client)
 	if (error) {
 		dev_err(info->dev, "ERROR: No such input device\n");
 		error = -ENODEV;
-		goto ProbeErrorExit_5_1;
+		goto ProbeErrorExit_5;
 	}
 
-	skip_5_1 = 1;
+	input_dev_free_flag = 1;
 	/* track slots */
 	info->touch_id = 0;
 	info->palm_touch_mask = 0;
@@ -5810,8 +5779,17 @@ static int fts_probe(struct spi_device *client)
 
 #if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
 	options = devm_kzalloc(info->dev, sizeof(struct gti_optional_configuration), GFP_KERNEL);
+	if (!options) {
+		dev_err(info->dev, "GTI optional configuration kzalloc failed.\n");
+	}
 	info->gti = goog_touch_interface_probe(
 		info, info->dev, info->input_dev, gti_default_handler, options);
+
+	retval = goog_pm_register_notification(info->gti, &fts_pm_ops);
+	if (retval < 0) {
+		dev_info(info->dev, "Failed to register gti pm");
+		goto ProbeErrorExit_7;
+	}
 #endif
 
 	dev_info(info->dev, "Probe Finished!\n");
@@ -5827,16 +5805,14 @@ ProbeErrorExit_6:
 	cpu_latency_qos_remove_request(&info->pm_qos_req);
 	input_unregister_device(info->input_dev);
 
-ProbeErrorExit_5_1:
-	if (skip_5_1 != 1)
+ProbeErrorExit_5:
+	/* This function should only be used if input_register_device()
+	 * was not called yet or if it failed. */
+	if (input_dev_free_flag != 1)
 		input_free_device(info->input_dev);
 
-ProbeErrorExit_5:
-	destroy_workqueue(info->event_wq);
-
 ProbeErrorExit_4:
-	/* destroy_workqueue(info->fwu_workqueue); */
-	wakeup_source_unregister(info->wakesrc);
+	destroy_workqueue(info->event_wq);
 
 ProbeErrorExit_3:
 	fts_pinctrl_get(info, false);
@@ -5844,10 +5820,6 @@ ProbeErrorExit_3:
 	fts_enable_reg(info, false);
 
 ProbeErrorExit_2:
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_TBN)
-	if (info->tbn_register_mask)
-		unregister_tbn(&info->tbn_register_mask);
-#endif
 	fts_get_reg(info, false);
 
 ProbeErrorExit_1:
@@ -5877,11 +5849,6 @@ static int fts_remove(struct spi_device *client)
 
 	dev_info(info->dev, "%s\n", __func__);
 
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_TBN)
-	if (info->tbn_register_mask)
-		unregister_tbn(&info->tbn_register_mask);
-#endif
-
 	fts_proc_remove(info);
 
 	/* sysfs stuff */
@@ -5899,7 +5866,6 @@ static int fts_remove(struct spi_device *client)
 
 	/* Remove the work thread */
 	destroy_workqueue(info->event_wq);
-	wakeup_source_unregister(info->wakesrc);
 
 	if(info->touchsim.wq)
 		destroy_workqueue(info->touchsim.wq);
@@ -5930,11 +5896,15 @@ static int fts_remove(struct spi_device *client)
 #ifdef CONFIG_PM
 static int fts_pm_suspend(struct device *dev)
 {
+	struct fts_ts_info *info = dev_get_drvdata(dev);
+	fts_suspend(info);
 	return 0;
 }
 
 static int fts_pm_resume(struct device *dev)
 {
+	struct fts_ts_info *info = dev_get_drvdata(dev);
+	fts_resume(info);
 	return 0;
 }
 
@@ -5962,7 +5932,7 @@ static struct i2c_driver fts_i2c_driver = {
 	.driver			= {
 		.name		= FTS_TS_DRV_NAME,
 		.of_match_table = fts_of_match_table,
-#ifdef CONFIG_PM
+#if IS_ENABLED(CONFIG_PM) && !IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
 		.pm		= &fts_pm_ops,
 #endif
 	},
@@ -5976,7 +5946,7 @@ static struct spi_driver fts_spi_driver = {
 		.name		= FTS_TS_DRV_NAME,
 		.of_match_table = fts_of_match_table,
 		.owner		= THIS_MODULE,
-#ifdef CONFIG_PM
+#if IS_ENABLED(CONFIG_PM) && !IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
 		.pm		= &fts_pm_ops,
 #endif
 	},

@@ -38,10 +38,6 @@
 #include "fts_lib/ftsSoftware.h"
 #include "fts_lib/ftsHardware.h"
 
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_TBN)
-#include <touch_bus_negotiator.h>
-#endif
-
 #if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
 #include <goog_touch_interface.h>
 #endif
@@ -739,11 +735,9 @@ typedef struct {
   * - fwupdate_stat   Store the result of a fw update triggered by the host \n
   * - notifier        Used for be notified from a suspend/resume event \n
   * - sensor_sleep    true suspend was called, false resume was called \n
-  * - wakesrc         Wakeup Source struct \n
   * - input_report_mutex  mutex for handling the pressure of keys \n
   * - series_of_switches  to store the enabling status of a particular feature
   *                       from the host \n
-  * - tbn             Touch Bus Negotiator context
   */
 struct fts_ts_info {
 	struct device           *dev;	/* Pointer to the device */
@@ -757,8 +751,6 @@ struct fts_ts_info {
 	/* buffer which store the input device name assigned by the kernel */
 	char fts_ts_phys[64];
 
-	struct work_struct suspend_work;	/* Suspend work thread */
-	struct work_struct resume_work;	/* Resume work thread */
 	struct workqueue_struct *event_wq;	/* Used for event handler, */
 						/* suspend, resume threads */
 
@@ -806,7 +798,6 @@ struct fts_ts_info {
 	struct fts_disp_extinfo extinfo;	/* Display extended info */
 
 	bool sensor_sleep;		/* True if suspend called */
-	struct wakeup_source *wakesrc;	/* Wake Lock struct */
 
 	/* switches for features */
 	int gesture_enabled;	/* Gesture during suspend */
@@ -824,10 +815,6 @@ struct fts_ts_info {
 	 * compute the duration a single finger is touched before it is lifted.
 	 */
 	ktime_t mf_downtime;
-
-#if IS_ENABLED(CONFIG_TOUCHSCREEN_TBN)
-	u32 tbn_register_mask;
-#endif
 
 #if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
 	struct goog_touch_interface *gti;

@@ -2852,17 +2852,12 @@ END_DIAGNOSTIC:
 				} else {
 					dev_info(info->dev, "FTS_BUS_REF_FORCE_ACTIVE: %s\n",
 						cmd[1] ? "ON" : "OFF");
-					res = OK;
-				}
-			} else if (numberParam == 3){
-				if (cmd[1] > 1) {
-					dev_err(info->dev, "Parameter should be 1 or 0\n");
-					res = ERROR_OP_NOT_ALLOW;
-				} else {
-					dev_info(info->dev, "%s: %s\n",
-						cmd[2] ? "FTS_BUS_REF_BUGREPORT" :
-							"FTS_BUS_REF_FORCE_ACTIVE",
-							cmd[1] ? "ON" : "OFF");
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+					cmd[1] ? goog_pm_wake_lock(info->gti,
+						GTI_PM_WAKELOCK_TYPE_FORCE_ACTIVE, false) :
+						goog_pm_wake_unlock(info->gti,
+						GTI_PM_WAKELOCK_TYPE_FORCE_ACTIVE);
+#endif
 					res = OK;
 				}
 			} else {
