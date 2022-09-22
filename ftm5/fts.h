@@ -718,8 +718,6 @@ typedef struct {
   * - dev             Pointer to the structure device \n
   * - client          client structure \n
   * - input_dev       Input device structure \n
-  * - work            Work thread \n
-  * - event_wq        Event queue for work thread \n
   * - event_dispatch_table  Event dispatch table handlers \n
   * - attrs           SysFS attributes \n
   * - mode            Device operating mode (bitmask) \n
@@ -751,13 +749,8 @@ struct fts_ts_info {
 	/* buffer which store the input device name assigned by the kernel */
 	char fts_ts_phys[64];
 
-	struct workqueue_struct *event_wq;	/* Used for event handler, */
-						/* suspend, resume threads */
-
 	struct pm_qos_request pm_qos_req;
 
-	bool enable_palm_data_dump;
-	struct delayed_work palm_data_dump_work;
 	struct delayed_work fwu_work;	/* Work for fw update */
 	struct workqueue_struct *fwu_workqueue;	/* Fw update work queue */
 	event_dispatch_handler_t *event_dispatch_table;	/* Dispatch table */

@@ -2799,82 +2799,6 @@ void fts_input_report_key(struct fts_ts_info *info, int key_code)
 }
 
 /**
-  * Palm data dump work function which perform capture the MS raw, strength,
-  * current scan mode and touch count.
-  */
-static void fts_palm_data_dump_work(struct work_struct *work)
-{
-	struct delayed_work *dwork = container_of(work, struct delayed_work,
-						  work);
-	struct fts_ts_info *info = container_of(dwork, struct fts_ts_info,
-						palm_data_dump_work);
-	const MSFrameType ms_type[] =
-#ifdef READ_FILTERED_RAW
-		{ MS_FILTER, MS_STRENGTH };
-#else
-		{ MS_RAW, MS_STRENGTH };
-#endif
-	const SSFrameType ss_type[] =
-#ifdef READ_FILTERED_RAW
-		{ SS_FILTER, SS_STRENGTH };
-#else
-		{ SS_RAW, SS_STRENGTH };
-#endif
-	char *ms_tag[] = { "MS raw", "MS strength" };
-	char *ss_tag[] = { "SS raw", "SS strength" };
-	MutualSenseFrame frameMS;
-	SelfSenseFrame frameSS;
-	int i, ret;
-
-	// Dump heatmap
-	for (i = 0; i < ARRAY_SIZE(ms_type); i++) {
-		ret = getMSFrame3(info, ms_type[i], &frameMS);
-		if (ret < 0) {
-			dev_err(info->dev,
-				"Error while taking the %s... ERROR %08X\n",
-				ms_tag[i], ret);
-		} else {
-			print_frame_short(info, ms_tag[i],
-				array1dTo2d_short(frameMS.node_data,
-					frameMS.node_data_size,
-					frameMS.header.sense_node),
-				frameMS.header.force_node,
-				frameMS.header.sense_node);
-		}
-	}
-
-	for (i = 0; i < ARRAY_SIZE(ss_type); i++) {
-		ret = getSSFrame3(info, ss_type[i], &frameSS);
-		if (ret < 0) {
-			dev_err(info->dev,
-				"Error while taking the %s... ERROR %08X\n",
-				ss_tag[i], ret);
-		} else {
-			dev_info(info->dev, "%s\n", ss_tag[i]);
-			print_frame_short(info, "SS force",
-				array1dTo2d_short(
-					frameSS.force_data,
-					frameSS.header.force_node,
-					frameSS.header.force_node),
-				1, frameSS.header.force_node);
-			print_frame_short(info, "SS sense",
-				array1dTo2d_short(
-					frameSS.sense_data,
-					frameSS.header.sense_node,
-					frameSS.header.sense_node),
-				1, frameSS.header.sense_node);
-		}
-	}
-
-	if (info->enable_palm_data_dump)
-		queue_delayed_work(info->event_wq,
-				   &info->palm_data_dump_work,
-				   msecs_to_jiffies(1000));
-}
-
-
-
-/**
   * Event Handler for no events (EVT_ID_NOEVENT)
   */
 static bool fts_nop_event_handler(struct fts_ts_info *info, unsigned
@@ -3467,10 +3391,6 @@ static bool fts_status_event_handler(struct fts_ts_info *info, unsigned
 				" = %02X %02X %02X %02X %02X %02X\n",
 				__func__, event[2], event[3], event[4],
 				event[5], event[6], event[7]);
-			info->enable_palm_data_dump = true;
-			queue_delayed_work(info->event_wq,
-					   &info->palm_data_dump_work,
-					   msecs_to_jiffies(3000));
 			break;
 
 		case 0x02:
@@ -3478,8 +3398,6 @@ static bool fts_status_event_handler(struct fts_ts_info *info, unsigned
 				" = %02X %02X %02X %02X %02X %02X\n",
 				__func__, event[2], event[3], event[4],
 				event[5], event[6], event[7]);
-			info->enable_palm_data_dump = false;
-			cancel_delayed_work(&info->palm_data_dump_work);
 			break;
 
 		default:
@@ -5558,23 +5476,13 @@ static int fts_probe(struct spi_device *client)
 	if (!retval)
 		fts_pinctrl_setup(info, true);
 
-	dev_info(info->dev, "SET Event Handler:\n");
-
-	info->event_wq = alloc_workqueue("fts-event-queue", WQ_UNBOUND |
-					 WQ_HIGHPRI | WQ_CPU_INTENSIVE, 1);
-	if (!info->event_wq) {
-		dev_err(info->dev, "ERROR: Cannot create work thread\n");
-		error = -ENOMEM;
-		goto ProbeErrorExit_3;
-	}
-
 	dev_info(info->dev, "SET Input Device Property:\n");
 	info->dev = &info->client->dev;
 	info->input_dev = input_allocate_device();
 	if (!info->input_dev) {
 		dev_err(info->dev, "ERROR: No such input device defined!\n");
 		error = -ENODEV;
-		goto ProbeErrorExit_4;
+		goto ProbeErrorExit_3;
 	}
 	info->input_dev->dev.parent = &client->dev;
 	info->input_dev->name = info->board->device_name;
@@ -5678,7 +5586,7 @@ static int fts_probe(struct spi_device *client)
 	if (error) {
 		dev_err(info->dev, "ERROR: No such input device\n");
 		error = -ENODEV;
-		goto ProbeErrorExit_5;
+		goto ProbeErrorExit_4;
 	}
 
 	input_dev_free_flag = 1;
@@ -5720,7 +5628,7 @@ static int fts_probe(struct spi_device *client)
 	if (error < OK) {
 		dev_err(info->dev, "Cannot initialize the device ERROR %08X\n", error);
 		error = -ENODEV;
-		goto ProbeErrorExit_6;
+		goto ProbeErrorExit_5;
 	}
 
 #if defined(FW_UPDATE_ON_PROBE) && defined(FW_H_FILE)
@@ -5730,7 +5638,7 @@ static int fts_probe(struct spi_device *client)
 		dev_err(info->dev, "Cannot execute fw upgrade the device ERROR %08X\n",
 			error);
 		error = -ENODEV;
-		goto ProbeErrorExit_7;
+		goto ProbeErrorExit_5;
 	}
 
 #else
@@ -5740,13 +5648,10 @@ static int fts_probe(struct spi_device *client)
 					      WQ_CPU_INTENSIVE, 1);
 	if (!info->fwu_workqueue) {
 		dev_err(info->dev, "ERROR: Cannot create fwu work thread\n");
-		goto ProbeErrorExit_7;
+		goto ProbeErrorExit_5;
 	}
 	INIT_DELAYED_WORK(&info->fwu_work, fts_fw_update_auto);
 #endif
-
-	info->enable_palm_data_dump = false;
-	INIT_DELAYED_WORK(&info->palm_data_dump_work, fts_palm_data_dump_work);
 
 	dev_info(info->dev, "SET Device File Nodes:\n");
 	/* sysfs stuff */
@@ -5756,7 +5661,7 @@ static int fts_probe(struct spi_device *client)
 	if (error) {
 		dev_err(info->dev, "ERROR: Cannot create sysfs structure!\n");
 		error = -ENODEV;
-		goto ProbeErrorExit_7;
+		goto ProbeErrorExit_5;
 	}
 
 	retval = fts_proc_init(info);
@@ -5788,7 +5693,7 @@ static int fts_probe(struct spi_device *client)
 	retval = goog_pm_register_notification(info->gti, &fts_pm_ops);
 	if (retval < 0) {
 		dev_info(info->dev, "Failed to register gti pm");
-		goto ProbeErrorExit_7;
+		goto ProbeErrorExit_6;
 	}
 #endif
 
@@ -5797,22 +5702,21 @@ static int fts_probe(struct spi_device *client)
 	return OK;
 
 
-ProbeErrorExit_7:
+ProbeErrorExit_6:
 	if(info->touchsim.wq)
 		destroy_workqueue(info->touchsim.wq);
 
-ProbeErrorExit_6:
+	sysfs_remove_group(&client->dev.kobj, &info->attrs);
+
+ProbeErrorExit_5:
 	cpu_latency_qos_remove_request(&info->pm_qos_req);
 	input_unregister_device(info->input_dev);
 
-ProbeErrorExit_5:
+ProbeErrorExit_4:
 	/* This function should only be used if input_register_device()
 	 * was not called yet or if it failed. */
 	if (input_dev_free_flag != 1)
 		input_free_device(info->input_dev);
-
-ProbeErrorExit_4:
-	destroy_workqueue(info->event_wq);
 
 ProbeErrorExit_3:
 	fts_pinctrl_get(info, false);
@@ -5861,11 +5765,6 @@ static int fts_remove(struct spi_device *client)
 
 	/* unregister the device */
 	input_unregister_device(info->input_dev);
-
-	/* input_free_device(info->input_dev ); */
-
-	/* Remove the work thread */
-	destroy_workqueue(info->event_wq);
 
 	if(info->touchsim.wq)
 		destroy_workqueue(info->touchsim.wq);
