@@ -313,23 +313,6 @@ typedef bool (*event_dispatch_handler_t)
 	(struct fts_ts_info *info, unsigned char *data);
 
 /**
-  * Driver touch simulation details
-  */
-struct fts_touchsim{
-	/* touch simulation coordinates */
-	int x, y, x_step, y_step;
-
-	/* timer to run the touch simulation code */
-	struct hrtimer hr_timer;
-
-	struct work_struct work;
-	struct workqueue_struct *wq;
-
-	/* True if the touch simulation is currently running */
-	bool is_running;
-};
-
-/**
   * Struct which store an ordered list of the errors events encountered during
   *the polling of a FIFO.
   * The max number of error events that can be stored is equal to FIFO_DEPTH
@@ -820,9 +803,6 @@ struct fts_ts_info {
 	struct mutex diag_cmd_lock;
 	/* Allow one process to open procfs node */
 	bool diag_node_open;
-
-	/* Touch simulation details */
-	struct fts_touchsim touchsim;
 
 	struct proc_dir_entry *fts_dir;
 
