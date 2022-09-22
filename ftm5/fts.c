@@ -3588,9 +3588,6 @@ static irqreturn_t fts_interrupt_handler(int irq, void *handle)
 	}
 #endif
 
-	/* prevent CPU from entering deep sleep */
-	cpu_latency_qos_update_request(&info->pm_qos_req, 100);
-
 	/* Read the first FIFO event and the number of events remaining */
 	error = fts_writeReadU8UX(info, regAdd, 0, 0, data, FIFO_EVENT_SIZE,
 				  DUMMY_FIFO);
@@ -3683,7 +3680,6 @@ static irqreturn_t fts_interrupt_handler(int irq, void *handle)
 	}
 
 exit:
-	cpu_latency_qos_update_request(&info->pm_qos_req, PM_QOS_DEFAULT_VALUE);
 #if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
 	goog_pm_wake_unlock(info->gti, GTI_PM_WAKELOCK_TYPE_IRQ);
 #endif
@@ -5384,14 +5380,6 @@ static int fts_probe(struct spi_device *client)
 	/* init motion filter mode */
 	info->use_default_mf = false;
 
-	/*
-	 * This *must* be done before request_threaded_irq is called.
-	 * Otherwise, if an interrupt is received before request is added,
-	 * but after the interrupt has been subscribed to, pm_qos_req
-	 * may be accessed before initialization in the interrupt handler.
-	 */
-	cpu_latency_qos_add_request(&info->pm_qos_req, PM_QOS_DEFAULT_VALUE);
-
 	dev_info(info->dev, "Init Core Lib:\n");
 	initCore(info);
 	/* init hardware device */
@@ -5469,7 +5457,6 @@ ProbeErrorExit_6:
 	sysfs_remove_group(&client->dev.kobj, &info->attrs);
 
 ProbeErrorExit_5:
-	cpu_latency_qos_remove_request(&info->pm_qos_req);
 	input_unregister_device(info->input_dev);
 
 ProbeErrorExit_4:
@@ -5520,8 +5507,6 @@ static int fts_remove(struct spi_device *client)
 
 	/* remove interrupt and event handlers */
 	fts_interrupt_uninstall(info);
-
-	cpu_latency_qos_remove_request(&info->pm_qos_req);
 
 	/* unregister the device */
 	input_unregister_device(info->input_dev);

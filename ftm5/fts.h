@@ -33,7 +33,6 @@
 #define _LINUX_FTS_I2C_H_
 
 #include <linux/device.h>
-#include <linux/pm_qos.h>
 #include <drm/drm_panel.h>
 #include "fts_lib/ftsSoftware.h"
 #include "fts_lib/ftsHardware.h"
@@ -731,8 +730,6 @@ struct fts_ts_info {
 
 	/* buffer which store the input device name assigned by the kernel */
 	char fts_ts_phys[64];
-
-	struct pm_qos_request pm_qos_req;
 
 	struct delayed_work fwu_work;	/* Work for fw update */
 	struct workqueue_struct *fwu_workqueue;	/* Fw update work queue */
