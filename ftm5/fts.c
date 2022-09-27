@@ -2538,7 +2538,122 @@ static struct attribute *fts_attr_group[] = {
 static int gti_default_handler(void *private_data, enum gti_cmd_type cmd_type,
 	struct gti_union_cmd_data *cmd)
 {
-	return -ESRCH;
+	int ret = 0;
+
+	switch (cmd_type) {
+	case GTI_CMD_NOTIFY_DISPLAY_STATE:
+	case GTI_CMD_NOTIFY_DISPLAY_VREFRESH:
+		ret = -EOPNOTSUPP;
+		break;
+	case GTI_CMD_SET_HEATMAP_ENABLED:
+		/* Heatmap is always enabled. */
+		ret = 0;
+		break;
+	default:
+		ret = -ESRCH;
+		break;
+	}
+
+	return ret;
+}
+
+static int get_mutual_sensor_data(void *private_data, struct gti_sensor_data_cmd *cmd)
+{
+	struct fts_ts_info *info = private_data;
+	int max_x = getForceLen(info);
+	int max_y = getSenseLen(info);
+	int result;
+	MutualSenseFrame ms_frame = { 0 };
+	uint32_t frame_index = 0, x, y;
+	uint32_t x_val, y_val;
+	int16_t heatmap_value;
+
+	cmd->buffer = (u8 *)info->mutual_data;
+	cmd->size = max_x * max_y * sizeof(int16_t);
+
+	result = getMSFrame3(info, MS_STRENGTH, &ms_frame);
+	if (result <= 0) {
+		dev_err(info->dev, "getMSFrame3 failed with result=0x%08X.\n", result);
+		kfree(ms_frame.node_data);
+		return result;
+	}
+
+	for (y = 0; y < max_y; y++) {
+		for (x = 0; x < max_x; x++) {
+			/* Rotate frame counter-clockwise and invert
+			 * if necessary.
+			 */
+			if (info->board->sensor_inverted_x)
+				x_val = (max_x - 1) - x;
+			else
+				x_val = x;
+			if (info->board->sensor_inverted_y)
+				y_val = (max_y - 1) - y;
+			else
+				y_val = y;
+
+			if (info->board->tx_rx_dir_swap)
+				heatmap_value = ms_frame.node_data[y_val * max_x + x_val];
+			else
+				heatmap_value = ms_frame.node_data[x_val * max_y + y_val];
+
+			info->mutual_data[frame_index++] = heatmap_value;
+		}
+	}
+
+	kfree(ms_frame.node_data);
+
+	return 0;
+}
+
+static int get_self_sensor_data(void *private_data, struct gti_sensor_data_cmd *cmd)
+{
+	struct fts_ts_info *info = private_data;
+	SelfSenseFrame ss_frame = { 0 };
+	int i;
+	int result;
+	int16_t *tx_src, *rx_src, *tx_dst, *rx_dst;
+	int tx_size = getForceLen(info);
+	int rx_size = getSenseLen(info);
+
+	cmd->buffer = (u8 *)info->self_data;
+	cmd->size = (tx_size + rx_size) * sizeof(int16_t);
+
+	result = getSSFrame3(info, SS_STRENGTH, &ss_frame);
+	if (result <= 0) {
+		dev_err(info->dev, "getSSFrame3 failed with result=0x%08X.\n", result);
+		kfree(ss_frame.force_data);
+		kfree(ss_frame.sense_data);
+		return result;
+	}
+
+	tx_src = ss_frame.force_data;
+	rx_src = ss_frame.sense_data;
+
+	/* tx, rx data order is fixed in TouchOffloadData1d */
+	tx_dst = info->self_data;
+	rx_dst = &info->self_data[tx_size];
+
+	/* If the tx data is flipped, copy in left-to-right order */
+	if (info->board->sensor_inverted_x) {
+		for (i = 0; i < tx_size; i++)
+			tx_dst[i] = tx_src[tx_size - 1 - i];
+	} else {
+		memcpy(tx_dst, tx_src, sizeof(int16_t) * tx_size);
+	}
+
+	/* If the rx data is flipped, copy in top-to-bottom order */
+	if (info->board->sensor_inverted_y) {
+		for (i = 0; i < rx_size; i++)
+			rx_dst[i] = rx_src[rx_size - 1 - i];
+	} else {
+		memcpy(rx_dst, rx_src, sizeof(int16_t) * rx_size);
+	}
+
+	kfree(ss_frame.force_data);
+	kfree(ss_frame.sense_data);
+
+	return 0;
 }
 #endif
 
@@ -5433,11 +5548,34 @@ static int fts_probe(struct spi_device *client)
 		queue_delayed_work(info->fwu_workqueue, &info->fwu_work,
 				   msecs_to_jiffies(EXP_FN_WORK_DELAY_MS));
 
+	if (getSenseLen(info) > 0 && getForceLen(info) > 0) {
+		info->mutual_data = devm_kzalloc(info->dev,
+			getSenseLen(info) * getForceLen(info) * sizeof(int16_t), GFP_KERNEL);
+		if (!info->mutual_data) {
+			dev_err(info->dev, "Failed to allocate mutual_data.\n");
+			goto ProbeErrorExit_6;
+		}
+		info->self_data = devm_kzalloc(info->dev,
+			(getSenseLen(info) + getForceLen(info)) * sizeof(int16_t), GFP_KERNEL);
+		if (!info->self_data) {
+			dev_err(info->dev, "Failed to allocate self_data.\n");
+			goto ProbeErrorExit_6;
+		}
+	} else {
+		dev_err(info->dev, "Incorrect system information SenseLen=%d, ForceLen=%d.\n",
+			getSenseLen(info), getForceLen(info));
+		goto ProbeErrorExit_6;
+	}
+
 #if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
 	options = devm_kzalloc(info->dev, sizeof(struct gti_optional_configuration), GFP_KERNEL);
 	if (!options) {
 		dev_err(info->dev, "GTI optional configuration kzalloc failed.\n");
 	}
+
+	options->get_mutual_sensor_data = get_mutual_sensor_data;
+	options->get_self_sensor_data = get_self_sensor_data;
+
 	info->gti = goog_touch_interface_probe(
 		info, info->dev, info->input_dev, gti_default_handler, options);
 
@@ -5455,6 +5593,8 @@ static int fts_probe(struct spi_device *client)
 
 ProbeErrorExit_6:
 	sysfs_remove_group(&client->dev.kobj, &info->attrs);
+	devm_kfree(info->dev, info->mutual_data);
+	devm_kfree(info->dev, info->self_data);
 
 ProbeErrorExit_5:
 	input_unregister_device(info->input_dev);

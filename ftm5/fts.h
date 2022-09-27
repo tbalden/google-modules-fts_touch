@@ -858,6 +858,9 @@ struct fts_ts_info {
 	u8 *stm_fts_cmd_buff;
 	loff_t stm_fts_cmd_buff_len;
 
+	int16_t *mutual_data;
+	int16_t *self_data;
+
 	/* buffer used to store the message info received */
 	char buf_chunk[CHUNK_PROC];
 
