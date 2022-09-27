@@ -1378,51 +1378,6 @@ static ssize_t gesture_coordinates_show(struct device *dev,
 }
 #endif
 
-/** sysfs file node to show motion filter mode
-  *  "echo 0/1 > default_mf" to change
-  *  "cat default_mf" to show
-  *  Possible commands:
-  *  0 = Dynamic change motion filter
-  *  1 = Default motion filter by FW
-  */
-static ssize_t default_mf_show(struct device *dev,
-					struct device_attribute *attr,
-					char *buf)
-{
-	struct fts_ts_info *info = dev_get_drvdata(dev);
-
-	return scnprintf(buf, PAGE_SIZE, "%d\n", info->use_default_mf ? 1 : 0);
-}
-
-static ssize_t default_mf_store(struct device *dev,
-					  struct device_attribute *attr,
-					  const char *buf,
-					  size_t count)
-{
-	struct fts_ts_info *info = dev_get_drvdata(dev);
-	bool val = false;
-	ssize_t retval = count;
-
-	if (!mutex_trylock(&info->diag_cmd_lock)) {
-		dev_err(dev, "%s: Blocking concurrent access\n", __func__);
-		retval = -EBUSY;
-		goto out;
-	}
-
-	if (kstrtobool(buf, &val) < 0) {
-		dev_err(dev, "%s: bad input. valid inputs are either 0 or 1!\n",
-			 __func__);
-		retval = -EINVAL;
-		goto unlock;
-	}
-
-	info->use_default_mf = val;
-
-unlock:
-	mutex_unlock(&info->diag_cmd_lock);
-out:
-	return retval;
-}
 
 /***************************************** PRODUCTION TEST
   ***************************************************/
@@ -2487,8 +2442,6 @@ static DEVICE_ATTR_RO(gesture_coordinates);
 #endif
 static DEVICE_ATTR_RW(autotune);
 
-static DEVICE_ATTR_RW(default_mf);
-
 static BIN_ATTR_RW(stm_fts_cmd, 0);
 
 static struct bin_attribute *fts_bin_attr_group[] = {
@@ -2530,7 +2483,6 @@ static struct attribute *fts_attr_group[] = {
 	&dev_attr_gesture_coordinates.attr,
 #endif
 	&dev_attr_autotune.attr,
-	&dev_attr_default_mf.attr,
 	NULL,
 };
 
@@ -2654,6 +2606,18 @@ static int get_self_sensor_data(void *private_data, struct gti_sensor_data_cmd *
 	kfree(ss_frame.sense_data);
 
 	return 0;
+}
+
+static int set_continuous_report(void *private_data, struct gti_continuous_report_cmd *cmd)
+{
+	struct fts_ts_info *info = private_data;
+	u8 write[3];
+
+	write[0] = (u8) FTS_CMD_CUSTOM_W;
+	write[1] = (u8) CUSTOM_CMD_CONTINUOUS_REPORT;
+	write[2] = cmd->setting == GTI_CONTINUOUS_REPORT_ENABLE ? 1 : 0;
+
+	return fts_write(info, write, sizeof(write));
 }
 #endif
 
@@ -3580,65 +3544,6 @@ static bool fts_user_report_event_handler(struct fts_ts_info *info, unsigned
 		break;
 	}
 	return false;
-}
-
-/* Update a state machine used to toggle control of the touch IC's motion
- * filter.
- */
-int update_motion_filter(struct fts_ts_info *info,
-				unsigned long touch_id)
-{
-	/* Motion filter timeout, in milliseconds */
-	const u32 mf_timeout_ms = 500;
-	u8 next_state;
-	u8 touches = hweight32(touch_id); /* Count the active touches */
-
-	if (info->use_default_mf)
-		return 0;
-
-	/* Determine the next filter state. The motion filter is enabled by
-	 * default and it is disabled while a single finger is touching the
-	 * screen. If another finger is touched down or if a timeout expires,
-	 * the motion filter is reenabled and remains enabled until all fingers
-	 * are lifted.
-	 */
-	next_state = info->mf_state;
-	switch (info->mf_state) {
-	case FTS_MF_FILTERED:
-		if (touches == 1) {
-			next_state = FTS_MF_UNFILTERED;
-			info->mf_downtime = ktime_get();
-		}
-		break;
-	case FTS_MF_UNFILTERED:
-		if (touches == 0) {
-			next_state = FTS_MF_FILTERED;
-		} else if (touches > 1 ||
-			   ktime_after(ktime_get(),
-				       ktime_add_ms(info->mf_downtime,
-						    mf_timeout_ms))) {
-			next_state = FTS_MF_FILTERED_LOCKED;
-		}
-		break;
-	case FTS_MF_FILTERED_LOCKED:
-		if (touches == 0) {
-			next_state = FTS_MF_FILTERED;
-		}
-		break;
-	}
-
-	/* Send command to update filter state */
-	if ((next_state == FTS_MF_UNFILTERED) !=
-	    (info->mf_state == FTS_MF_UNFILTERED)) {
-		u8 cmd[3] = {0xC0, 0x05, 0x00};
-		dev_dbg(info->dev, "%s: setting motion filter = %s.\n", __func__,
-			 (next_state == FTS_MF_UNFILTERED) ? "false" : "true");
-		cmd[2] = (next_state == FTS_MF_UNFILTERED) ? 0x01 : 0x00;
-		fts_write(info, cmd, sizeof(cmd));
-	}
-	info->mf_state = next_state;
-
-	return 0;
 }
 
 int fts_enable_grip(struct fts_ts_info *info, bool enable)
@@ -5492,9 +5397,6 @@ static int fts_probe(struct spi_device *client)
 
 	info->resume_bit = 1;
 
-	/* init motion filter mode */
-	info->use_default_mf = false;
-
 	dev_info(info->dev, "Init Core Lib:\n");
 	initCore(info);
 	/* init hardware device */
@@ -5575,6 +5477,7 @@ static int fts_probe(struct spi_device *client)
 
 	options->get_mutual_sensor_data = get_mutual_sensor_data;
 	options->get_self_sensor_data = get_self_sensor_data;
+	options->set_continuous_report = set_continuous_report;
 
 	info->gti = goog_touch_interface_probe(
 		info, info->dev, info->input_dev, gti_default_handler, options);
