@@ -278,27 +278,6 @@ struct fts_hw_platform_data {
 	u8 fw_grip_area;
 };
 
-/* Bits for the bus reference mask */
-enum {
-	FTS_BUS_REF_SCREEN_ON		= 0x01,
-	FTS_BUS_REF_IRQ			= 0x02,
-	FTS_BUS_REF_FW_UPDATE		= 0x04,
-	FTS_BUS_REF_SYSFS		= 0x08,
-	FTS_BUS_REF_FORCE_ACTIVE	= 0x10,
-	FTS_BUS_REF_BUGREPORT		= 0x20,
-};
-
-/* Motion filter finite state machine (FSM) states
- * FTS_MF_FILTERED        - default coordinate filtering
- * FTS_MF_UNFILTERED      - unfiltered single-touch coordinates
- * FTS_MF_FILTERED_LOCKED - filtered coordinates. Locked until touch is lifted.
- */
-typedef enum {
-	FTS_MF_FILTERED		= 0,
-	FTS_MF_UNFILTERED	= 1,
-	FTS_MF_FILTERED_LOCKED	= 2
-} motion_filter_state_t;
-
 /*
   * Forward declaration
   */
@@ -779,15 +758,7 @@ struct fts_ts_info {
 	int stylus_enabled;	/* Stylus mode */
 	int cover_enabled;	/* Cover mode */
 	int grip_enabled;	/* Grip mode */
-
-	/* Stop changing motion filter and keep fw design */
-	bool use_default_mf;
-	/* Motion filter finite state machine (FSM) state */
-	motion_filter_state_t mf_state;
-	/* Time of initial single-finger touch down. This timestamp is used to
-	 * compute the duration a single finger is touched before it is lifted.
-	 */
-	ktime_t mf_downtime;
+	int palm_enabled;	/* Palm mode */
 
 #if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
 	struct goog_touch_interface *gti;
@@ -857,6 +828,9 @@ struct fts_ts_info {
 	u8 *driver_test_buff;
 	u8 *stm_fts_cmd_buff;
 	loff_t stm_fts_cmd_buff_len;
+
+	int16_t *mutual_data;
+	int16_t *self_data;
 
 	/* buffer used to store the message info received */
 	char buf_chunk[CHUNK_PROC];

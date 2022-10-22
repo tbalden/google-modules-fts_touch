@@ -1378,51 +1378,6 @@ static ssize_t gesture_coordinates_show(struct device *dev,
 }
 #endif
 
-/** sysfs file node to show motion filter mode
-  *  "echo 0/1 > default_mf" to change
-  *  "cat default_mf" to show
-  *  Possible commands:
-  *  0 = Dynamic change motion filter
-  *  1 = Default motion filter by FW
-  */
-static ssize_t default_mf_show(struct device *dev,
-					struct device_attribute *attr,
-					char *buf)
-{
-	struct fts_ts_info *info = dev_get_drvdata(dev);
-
-	return scnprintf(buf, PAGE_SIZE, "%d\n", info->use_default_mf ? 1 : 0);
-}
-
-static ssize_t default_mf_store(struct device *dev,
-					  struct device_attribute *attr,
-					  const char *buf,
-					  size_t count)
-{
-	struct fts_ts_info *info = dev_get_drvdata(dev);
-	bool val = false;
-	ssize_t retval = count;
-
-	if (!mutex_trylock(&info->diag_cmd_lock)) {
-		dev_err(dev, "%s: Blocking concurrent access\n", __func__);
-		retval = -EBUSY;
-		goto out;
-	}
-
-	if (kstrtobool(buf, &val) < 0) {
-		dev_err(dev, "%s: bad input. valid inputs are either 0 or 1!\n",
-			 __func__);
-		retval = -EINVAL;
-		goto unlock;
-	}
-
-	info->use_default_mf = val;
-
-unlock:
-	mutex_unlock(&info->diag_cmd_lock);
-out:
-	return retval;
-}
 
 /***************************************** PRODUCTION TEST
   ***************************************************/
@@ -2487,8 +2442,6 @@ static DEVICE_ATTR_RO(gesture_coordinates);
 #endif
 static DEVICE_ATTR_RW(autotune);
 
-static DEVICE_ATTR_RW(default_mf);
-
 static BIN_ATTR_RW(stm_fts_cmd, 0);
 
 static struct bin_attribute *fts_bin_attr_group[] = {
@@ -2530,7 +2483,6 @@ static struct attribute *fts_attr_group[] = {
 	&dev_attr_gesture_coordinates.attr,
 #endif
 	&dev_attr_autotune.attr,
-	&dev_attr_default_mf.attr,
 	NULL,
 };
 
@@ -2538,7 +2490,283 @@ static struct attribute *fts_attr_group[] = {
 static int gti_default_handler(void *private_data, enum gti_cmd_type cmd_type,
 	struct gti_union_cmd_data *cmd)
 {
-	return -ESRCH;
+	int ret = 0;
+
+	switch (cmd_type) {
+	case GTI_CMD_NOTIFY_DISPLAY_STATE:
+	case GTI_CMD_NOTIFY_DISPLAY_VREFRESH:
+		ret = -EOPNOTSUPP;
+		break;
+	case GTI_CMD_SET_HEATMAP_ENABLED:
+		/* Heatmap is always enabled. */
+		ret = 0;
+		break;
+	default:
+		ret = -ESRCH;
+		break;
+	}
+
+	return ret;
+}
+
+static int get_mutual_sensor_data(void *private_data, struct gti_sensor_data_cmd *cmd)
+{
+	struct fts_ts_info *info = private_data;
+	int max_x = getForceLen(info);
+	int max_y = getSenseLen(info);
+	int result;
+	MutualSenseFrame ms_frame = { 0 };
+	uint32_t frame_index = 0, x, y;
+	uint32_t x_val, y_val;
+	int16_t heatmap_value;
+
+	cmd->size = max_x * max_y * sizeof(int16_t);
+
+	if (!info->mutual_data) {
+		info->mutual_data = devm_kzalloc(info->dev, cmd->size, GFP_KERNEL);
+		if (!info->mutual_data) {
+			dev_err(info->dev, "Failed to allocate mutual_data.\n");
+			return -ENOMEM;
+		}
+	}
+
+	cmd->buffer = (u8 *)info->mutual_data;
+
+	result = getMSFrame3(info, MS_STRENGTH, &ms_frame);
+	if (result <= 0) {
+		dev_err(info->dev, "getMSFrame3 failed with result=0x%08X.\n", result);
+		kfree(ms_frame.node_data);
+		return result;
+	}
+
+	for (y = 0; y < max_y; y++) {
+		for (x = 0; x < max_x; x++) {
+			/* Rotate frame counter-clockwise and invert
+			 * if necessary.
+			 */
+			if (info->board->sensor_inverted_x)
+				x_val = (max_x - 1) - x;
+			else
+				x_val = x;
+			if (info->board->sensor_inverted_y)
+				y_val = (max_y - 1) - y;
+			else
+				y_val = y;
+
+			if (info->board->tx_rx_dir_swap)
+				heatmap_value = ms_frame.node_data[y_val * max_x + x_val];
+			else
+				heatmap_value = ms_frame.node_data[x_val * max_y + y_val];
+
+			info->mutual_data[frame_index++] = heatmap_value;
+		}
+	}
+
+	kfree(ms_frame.node_data);
+
+	return 0;
+}
+
+static int get_self_sensor_data(void *private_data, struct gti_sensor_data_cmd *cmd)
+{
+	struct fts_ts_info *info = private_data;
+	SelfSenseFrame ss_frame = { 0 };
+	int i;
+	int result;
+	int16_t *tx_src, *rx_src, *tx_dst, *rx_dst;
+	int tx_size = getForceLen(info);
+	int rx_size = getSenseLen(info);
+
+	cmd->size = (tx_size + rx_size) * sizeof(int16_t);
+
+	if (!info->self_data) {
+		info->self_data = devm_kzalloc(info->dev, cmd->size, GFP_KERNEL);
+		if (!info->self_data) {
+			dev_err(info->dev, "Failed to allocate self_data.\n");
+			return -ENOMEM;
+		}
+	}
+
+	cmd->buffer = (u8 *)info->self_data;
+
+	result = getSSFrame3(info, SS_STRENGTH, &ss_frame);
+	if (result <= 0) {
+		dev_err(info->dev, "getSSFrame3 failed with result=0x%08X.\n", result);
+		kfree(ss_frame.force_data);
+		kfree(ss_frame.sense_data);
+		return result;
+	}
+
+	tx_src = ss_frame.force_data;
+	rx_src = ss_frame.sense_data;
+
+	/* tx, rx data order is fixed in TouchOffloadData1d */
+	tx_dst = info->self_data;
+	rx_dst = &info->self_data[tx_size];
+
+	/* If the tx data is flipped, copy in left-to-right order */
+	if (info->board->sensor_inverted_x) {
+		for (i = 0; i < tx_size; i++)
+			tx_dst[i] = tx_src[tx_size - 1 - i];
+	} else {
+		memcpy(tx_dst, tx_src, sizeof(int16_t) * tx_size);
+	}
+
+	/* If the rx data is flipped, copy in top-to-bottom order */
+	if (info->board->sensor_inverted_y) {
+		for (i = 0; i < rx_size; i++)
+			rx_dst[i] = rx_src[rx_size - 1 - i];
+	} else {
+		memcpy(rx_dst, rx_src, sizeof(int16_t) * rx_size);
+	}
+
+	kfree(ss_frame.force_data);
+	kfree(ss_frame.sense_data);
+
+	return 0;
+}
+
+static int set_continuous_report(void *private_data, struct gti_continuous_report_cmd *cmd)
+{
+	struct fts_ts_info *info = private_data;
+	u8 write[3];
+
+	write[0] = (u8) FTS_CMD_CUSTOM_W;
+	write[1] = (u8) CUSTOM_CMD_CONTINUOUS_REPORT;
+	write[2] = cmd->setting == GTI_CONTINUOUS_REPORT_ENABLE ? 1 : 0;
+
+	return fts_write(info, write, sizeof(write));
+}
+
+static int set_screen_protector_mode(
+	void *private_data, struct gti_screen_protector_mode_cmd *cmd)
+{
+	struct fts_ts_info *info = private_data;
+	u8 write[3];
+	u8 enable;
+	int ret;
+
+	enable = cmd->setting == GTI_SCREEN_PROTECTOR_MODE_ENABLE ? 1 : 0;
+
+	write[0] = (u8) FTS_CMD_CUSTOM_W;
+	write[1] = (u8) CUSTOM_CMD_HIGH_SENSITIVITY;
+	write[2] = enable;
+
+	ret = fts_write(info, write, sizeof(write));
+	if (ret) {
+		dev_err(info->dev, "Failed to %s screen protector mode.\n",
+			enable ? "enable" : "disable");
+	} else {
+		info->glove_enabled = enable;
+		dev_info(info->dev, "%s screen protector mode.\n",
+			info->glove_enabled ? "Enable" : "Disable");
+	}
+
+	return ret;
+}
+
+static int get_screen_protector_mode(
+	void *private_data, struct gti_screen_protector_mode_cmd *cmd)
+{
+	struct fts_ts_info *info = private_data;
+
+	cmd->setting = info->glove_enabled == 1 ? GTI_SCREEN_PROTECTOR_MODE_ENABLE :
+		GTI_SCREEN_PROTECTOR_MODE_DISABLE;
+	return 0;
+}
+
+/**
+ * Grip parameters definition.
+ * buf[0]: FTS_CMD_CUSTOM_W
+ * buf[1]: CUSTOM_CMD_GRIP_SUPPRESSION
+ * buf[2]: Grip type tune.
+ * buf[3]: Feature enable/disable.
+ *         Bit0-7 for left/right/top/bottom/bottom left/bottom right/top left/top right.
+ * buf[4]: Feature enable/disable.
+ *         Bit0 for left edge palm, Bit1 for right edge palm.
+ *         Bit2-7 Reserved.
+ * buf[5-8]: Reserved.
+ */
+static int set_grip_mode(void *private_data, struct gti_grip_cmd *cmd)
+{
+	struct fts_ts_info *info = private_data;
+	u8 write[9] = { 0 };
+	u8 enable;
+	int ret;
+
+	enable = cmd->setting == GTI_GRIP_ENABLE ? 1 : 0;
+
+	write[0] = (u8) FTS_CMD_CUSTOM_W;
+	write[1] = (u8) CUSTOM_CMD_GRIP_SUPPRESSION;
+	write[2] = GRIP_FEATURE_ENABLE;
+	write[3] = enable ? 0xff : 0x00;
+	write[4] = enable ? 0x03 : 0x00;
+
+	ret = fts_write(info, write, sizeof(write));
+	if (ret) {
+		dev_err(info->dev, "Failed to %s firmware grip suppression.\n",
+			enable ? "enable" : "disable");
+	} else {
+		info->grip_enabled = enable;
+		dev_info(info->dev, "%s firmware grip suppression.\n",
+			info->grip_enabled ? "Enable" : "Disable");
+	}
+
+	return ret;
+}
+
+static int get_grip_mode(void *private_data, struct gti_grip_cmd *cmd)
+{
+	struct fts_ts_info *info = private_data;
+
+	cmd->setting = info->grip_enabled == 1 ? GTI_GRIP_ENABLE : GTI_GRIP_DISABLE;
+	return 0;
+}
+
+/**
+ * Palm mode definition.
+ * 0 : Palm rejection disable
+ * 1 : Palm rejection enable. All rejected after detected palm, and returned
+ *     to normal after all left.
+ * 2 : Palm rejection enable. Palm rejected only after detected palm, and
+ *     returned to normal after palm left.
+ * 3 : Palm rejection enable. All rejected after detected palm, and returned
+ *     to normal after palm left
+ */
+/* Use palm mode 3 when it's enabled. */
+#define FTS_PALM_MODE 3
+static int set_palm_mode(void *private_data, struct gti_palm_cmd *cmd)
+{
+	struct fts_ts_info *info = private_data;
+	u8 write[3];
+	u8 enable;
+	int ret;
+
+	enable = cmd->setting == GTI_PALM_ENABLE ? 1 : 0;
+
+	write[0] = (u8) FTS_CMD_CUSTOM_W;
+	write[1] = (u8) CUSTOM_CMD_PALM_REJECTION;
+	write[2] = enable ? FTS_PALM_MODE : 0;
+
+	ret = fts_write(info, write, sizeof(write));
+	if (ret) {
+		dev_err(info->dev, "Failed to %s firmware palm rejection.\n",
+			enable ? "enable" : "disable");
+	} else {
+		info->palm_enabled = enable;
+		dev_info(info->dev, "%s firmware palm rejection.\n",
+			info->palm_enabled ? "Enable" : "Disable");
+	}
+
+	return ret;
+}
+
+static int get_palm_mode(void *private_data, struct gti_palm_cmd *cmd)
+{
+	struct fts_ts_info *info = private_data;
+
+	cmd->setting = info->palm_enabled == 1 ? GTI_PALM_ENABLE : GTI_PALM_DISABLE;
+	return 0;
 }
 #endif
 
@@ -2876,6 +3104,7 @@ static bool fts_controller_ready_event_handler(struct fts_ts_info *info,
 	if (error < OK)
 		dev_err(info->dev, "%s Cannot restore the device status ERROR %08X\n",
 			__func__, error);
+
 	return false;
 }
 
@@ -3465,99 +3694,6 @@ static bool fts_user_report_event_handler(struct fts_ts_info *info, unsigned
 		break;
 	}
 	return false;
-}
-
-/* Update a state machine used to toggle control of the touch IC's motion
- * filter.
- */
-int update_motion_filter(struct fts_ts_info *info,
-				unsigned long touch_id)
-{
-	/* Motion filter timeout, in milliseconds */
-	const u32 mf_timeout_ms = 500;
-	u8 next_state;
-	u8 touches = hweight32(touch_id); /* Count the active touches */
-
-	if (info->use_default_mf)
-		return 0;
-
-	/* Determine the next filter state. The motion filter is enabled by
-	 * default and it is disabled while a single finger is touching the
-	 * screen. If another finger is touched down or if a timeout expires,
-	 * the motion filter is reenabled and remains enabled until all fingers
-	 * are lifted.
-	 */
-	next_state = info->mf_state;
-	switch (info->mf_state) {
-	case FTS_MF_FILTERED:
-		if (touches == 1) {
-			next_state = FTS_MF_UNFILTERED;
-			info->mf_downtime = ktime_get();
-		}
-		break;
-	case FTS_MF_UNFILTERED:
-		if (touches == 0) {
-			next_state = FTS_MF_FILTERED;
-		} else if (touches > 1 ||
-			   ktime_after(ktime_get(),
-				       ktime_add_ms(info->mf_downtime,
-						    mf_timeout_ms))) {
-			next_state = FTS_MF_FILTERED_LOCKED;
-		}
-		break;
-	case FTS_MF_FILTERED_LOCKED:
-		if (touches == 0) {
-			next_state = FTS_MF_FILTERED;
-		}
-		break;
-	}
-
-	/* Send command to update filter state */
-	if ((next_state == FTS_MF_UNFILTERED) !=
-	    (info->mf_state == FTS_MF_UNFILTERED)) {
-		u8 cmd[3] = {0xC0, 0x05, 0x00};
-		dev_dbg(info->dev, "%s: setting motion filter = %s.\n", __func__,
-			 (next_state == FTS_MF_UNFILTERED) ? "false" : "true");
-		cmd[2] = (next_state == FTS_MF_UNFILTERED) ? 0x01 : 0x00;
-		fts_write(info, cmd, sizeof(cmd));
-	}
-	info->mf_state = next_state;
-
-	return 0;
-}
-
-int fts_enable_grip(struct fts_ts_info *info, bool enable)
-{
-	uint8_t enable_cmd[] = {
-		0xC0, 0x03, 0x10, 0xFF, 0x03, 0x00, 0x00, 0x00, 0x00};
-	uint8_t disable_cmd[] = {
-		0xC0, 0x03, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-	uint8_t left_size_cmd[] =
-		{0xC0, 0x03, 0x20, 0x00/* unit: px */, 0x00, 0x00, 0x00, 0x5F, 0x09};
-	uint8_t right_size_cmd[] =
-		{0xC0, 0x03, 0x21, 0x00/* unit: px */, 0x00, 0x00, 0x00, 0x5F, 0x09};
-	int res;
-
-	if (enable) {
-		if (info->board->fw_grip_area) {
-			left_size_cmd[3] = info->board->fw_grip_area;
-			right_size_cmd[3] = info->board->fw_grip_area;
-			res = fts_write(info, left_size_cmd, sizeof(left_size_cmd));
-			res = fts_write(info, right_size_cmd, sizeof(right_size_cmd));
-		}
-		res = fts_write(info, enable_cmd, sizeof(enable_cmd));
-	} else {
-		if (info->board->fw_grip_area) {
-			res = fts_write(info, left_size_cmd, sizeof(left_size_cmd));
-			res = fts_write(info, right_size_cmd, sizeof(right_size_cmd));
-		}
-		res = fts_write(info, disable_cmd, sizeof(disable_cmd));
-	}
-	if (res < 0)
-		dev_err(info->dev, "%s: fts_write failed with res=%d.\n",
-			__func__, res);
-
-	return res;
 }
 
 /**
@@ -4289,15 +4425,23 @@ static int fts_init(struct fts_ts_info *info)
 {
 	int error;
 
-
 	error = fts_system_reset(info);
-	if (error < OK) {
+	/*
+	 * If it's not bus error, it's possible that there is no FW or FW
+	 * broken so we continue to flash.
+	 */
+	if (error < OK && isBusError(error)) {
 		dev_err(info->dev, "Cannot reset the device! ERROR %08X\n", error);
 		return error;
+	}
+
+	if (error == (ERROR_TIMEOUT | ERROR_SYSTEM_RESET_FAIL)) {
+		dev_err(info->dev, "Setting default Sys INFO!\n");
+		error = defaultSysInfo(info, 0);
 	} else {
 		error = readSysInfo(info, 0);	/* system reset OK */
 		if (error < OK) {
-			if (!isI2cError(error))
+			if (!isBusError(error))
 				error = OK;
 			dev_err(info->dev, "Cannot read Sys Info! ERROR %08X\n",
 				error);
@@ -4472,6 +4616,10 @@ static int fts_mode_handler(struct fts_ts_info *info, int force)
 	case 1:	/* screen up */
 		dev_dbg(info->dev, "%s: Screen ON...\n", __func__);
 
+/* Set the features from GTI if GTI is enabled. */
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+		goog_notify_fw_status_changed(info->gti, GTI_FW_STATUE_RESET, NULL);
+#else
 #ifdef GLOVE_MODE
 		if ((info->glove_enabled == FEAT_ENABLE &&
 		     isSystemResettedUp(info)) || force == 1) {
@@ -4493,7 +4641,6 @@ static int fts_mode_handler(struct fts_ts_info *info, int force)
 		}
 
 #endif
-
 #ifdef COVER_MODE
 		if ((info->cover_enabled == FEAT_ENABLE &&
 		     isSystemResettedUp(info)) || force == 1) {
@@ -4536,8 +4683,6 @@ static int fts_mode_handler(struct fts_ts_info *info, int force)
 					__func__);
 		}
 #endif
-
-
 #ifdef GRIP_MODE
 		if ((info->grip_enabled == FEAT_ENABLE &&
 		     isSystemResettedUp(info)) || force == 1) {
@@ -4557,19 +4702,21 @@ static int fts_mode_handler(struct fts_ts_info *info, int force)
 				dev_info(info->dev, "%s: GRIP_MODE Disabled!\n", __func__);
 		}
 #endif
+#endif /* IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE) */
+
 		/* If some selective scan want to be enabled can be done
-		  * an or of the following options
-		  */
-		/* settings[0] = ACTIVE_MULTI_TOUCH | ACTIVE_KEY | */
-		/*		ACTIVE_HOVER | ACTIVE_PROXIMITY | */
-		/*		ACTIVE_FORCE; */
+		 * an or of the following options
+		 */
+		/* settings[0] = ACTIVE_MULTI_TOUCH | ACTIVE_KEY |
+		 *		ACTIVE_HOVER | ACTIVE_PROXIMITY |
+		 *		ACTIVE_FORCE;
+		 */
 		settings[0] = 0xFF;	/* enable all the possible scans mode
-					  * supported by the config */
+					 * supported by the config */
 		dev_info(info->dev, "%s: Sense ON!\n", __func__);
 		res |= setScanMode(info, SCAN_MODE_ACTIVE, settings[0]);
 		info->mode |= (SCAN_MODE_ACTIVE << 24);
 		MODE_ACTIVE(info->mode, settings[0]);
-
 
 		setSystemResetedUp(info, 0);
 		break;
@@ -4579,7 +4726,6 @@ static int fts_mode_handler(struct fts_ts_info *info, int force)
 			__func__, info->resume_bit, ERROR_OP_NOT_ALLOW);
 		res = ERROR_OP_NOT_ALLOW;
 	}
-
 
 	dev_dbg(info->dev, "%s: Mode Handler finished! res = %08X mode = %08X\n",
 		__func__, res, info->mode);
@@ -4709,7 +4855,6 @@ static void fts_resume(struct fts_ts_info *info)
 	fts_system_reset(info);
 	info->resume_bit = 1;
 	fts_mode_handler(info, 0);
-
 	fts_enableInterrupt(info, true);
 	info->sensor_sleep = false;
 }
@@ -5377,9 +5522,6 @@ static int fts_probe(struct spi_device *client)
 
 	info->resume_bit = 1;
 
-	/* init motion filter mode */
-	info->use_default_mf = false;
-
 	dev_info(info->dev, "Init Core Lib:\n");
 	initCore(info);
 	/* init hardware device */
@@ -5429,15 +5571,22 @@ static int fts_probe(struct spi_device *client)
 		dev_err(info->dev, "Error: can not create /proc file!\n");
 	info->diag_node_open = false;
 
-	if (info->fwu_workqueue)
-		queue_delayed_work(info->fwu_workqueue, &info->fwu_work,
-				   msecs_to_jiffies(EXP_FN_WORK_DELAY_MS));
-
 #if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
 	options = devm_kzalloc(info->dev, sizeof(struct gti_optional_configuration), GFP_KERNEL);
 	if (!options) {
 		dev_err(info->dev, "GTI optional configuration kzalloc failed.\n");
 	}
+
+	options->get_mutual_sensor_data = get_mutual_sensor_data;
+	options->get_self_sensor_data = get_self_sensor_data;
+	options->set_continuous_report = set_continuous_report;
+	options->set_screen_protector_mode = set_screen_protector_mode;
+	options->get_screen_protector_mode = get_screen_protector_mode;
+	options->set_grip_mode = set_grip_mode;
+	options->get_grip_mode = get_grip_mode;
+	options->set_palm_mode = set_palm_mode;
+	options->get_palm_mode = get_palm_mode;
+
 	info->gti = goog_touch_interface_probe(
 		info, info->dev, info->input_dev, gti_default_handler, options);
 
@@ -5447,6 +5596,10 @@ static int fts_probe(struct spi_device *client)
 		goto ProbeErrorExit_6;
 	}
 #endif
+
+	if (info->fwu_workqueue)
+		queue_delayed_work(info->fwu_workqueue, &info->fwu_work,
+				   msecs_to_jiffies(EXP_FN_WORK_DELAY_MS));
 
 	dev_info(info->dev, "Probe Finished!\n");
 
