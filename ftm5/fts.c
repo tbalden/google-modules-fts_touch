@@ -220,6 +220,9 @@ static ssize_t fwupdate_store(struct device *dev,
 		dev_info(dev, "%s: file = %s, force = %d, keep_cx = %d\n", __func__,
 			path, force, keep_cx);
 
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+		goog_pm_wake_lock(info->gti, GTI_PM_WAKELOCK_TYPE_FW_UPDATE, false);
+#endif
 		if (info->sensor_sleep)
 			ret = ERROR_BUS_WR;
 		else {
@@ -242,6 +245,10 @@ static ssize_t fwupdate_store(struct device *dev,
 		}
 
 		info->fwupdate_stat = ret;
+
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+		goog_pm_wake_unlock(info->gti, GTI_PM_WAKELOCK_TYPE_FW_UPDATE);
+#endif
 
 		if (ret == ERROR_BUS_WR)
 			dev_err(dev, "%s: bus is not accessible. ERROR %08X\n",
@@ -2768,6 +2775,39 @@ static int get_palm_mode(void *private_data, struct gti_palm_cmd *cmd)
 	cmd->setting = info->palm_enabled == 1 ? GTI_PALM_ENABLE : GTI_PALM_DISABLE;
 	return 0;
 }
+
+/**
+ * Set the custom touch report rate.
+ * buf[0]: FTS_CMD_CUSTOM_W
+ * buf[1]: CUSTOM_CMD_REPORT_RATE
+ * buf[2]: Enable/Disable.
+ * buf[3]: Report rate unit. (100 us)
+ */
+static int set_report_rate(void *private_data, struct gti_report_rate_cmd *cmd)
+{
+	struct fts_ts_info *info = private_data;
+	u8 write[4];
+	int ret;
+
+	if (cmd->setting == 0) {
+		dev_err(info->dev, "Invalid report rate.\n");
+		return -EINVAL;
+	}
+
+	write[0] = (u8) FTS_CMD_CUSTOM_W;
+	write[1] = (u8) CUSTOM_CMD_REPORT_RATE;
+	write[2] = 1;
+	write[3] = MSEC_PER_SEC * 10 / cmd->setting;
+
+	ret = fts_write(info, write, sizeof(write));
+	if (ret) {
+		dev_err(info->dev, "Failed to set report rate.\n");
+	} else {
+		dev_info(info->dev, "Set touch report rate as %dHz.\n", cmd->setting);
+	}
+
+	return ret;
+}
 #endif
 
 /**
@@ -3752,20 +3792,19 @@ static irqreturn_t fts_interrupt_handler(int irq, void *handle)
 		for (count = 0; count < events_remaining + 1; count++) {
 			evt_data = &data[count * FIFO_EVENT_SIZE];
 
-			switch (evt_data[0]) {
+			switch (GET_EVENT_TYPE(evt_data[0])) {
 			case EVT_ID_CONTROLLER_READY:
 			case EVT_ID_ERROR:
 				eventId = evt_data[0] >> 4;
 				info->event_dispatch_table[eventId](info, evt_data);
 
-				has_pointer_event = false;
 				event_start_idx = count;
 				break;
 
 			case EVT_ID_ENTER_POINT:
 			case EVT_ID_MOTION_POINT:
 			case EVT_ID_LEAVE_POINT:
-				has_pointer_event = true;
+				has_pointer_event |= true;
 				break;
 
 			default:
@@ -5593,6 +5632,7 @@ static int fts_probe(struct spi_device *client)
 	options->get_grip_mode = get_grip_mode;
 	options->set_palm_mode = set_palm_mode;
 	options->get_palm_mode = get_palm_mode;
+	options->set_report_rate = set_report_rate;
 
 	info->gti = goog_touch_interface_probe(
 		info, info->dev, info->input_dev, gti_default_handler, options);

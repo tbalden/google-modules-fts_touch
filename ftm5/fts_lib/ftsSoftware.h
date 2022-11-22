@@ -373,7 +373,8 @@ enum {
 #define SPECIAL_TUNING_IOFF	0x02	/* /< Perform Ioff calibration */
 
 /** @}*/
-
+/* bit2 and bit3 are for major data so skip it. */
+#define GET_EVENT_TYPE(event_data)	(event_data & 0xF3)
 /* EVENT ID */
 /** @defgroup events_group	 FW Event IDs and Types
   * Event IDs and Types pushed by the FW into the FIFO
@@ -572,6 +573,7 @@ enum {
 
 #define CUSTOM_CMD_GRIP_SUPPRESSION	0x03
 #define CUSTOM_CMD_CONTINUOUS_REPORT	0x05
+#define CUSTOM_CMD_REPORT_RATE		0x06
 #define CUSTOM_CMD_PALM_REJECTION	0x0B
 #define CUSTOM_CMD_HIGH_SENSITIVITY	0x0E
 
