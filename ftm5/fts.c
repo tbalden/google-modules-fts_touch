@@ -4664,7 +4664,7 @@ static int fts_mode_handler(struct fts_ts_info *info, int force)
 
 /* Set the features from GTI if GTI is enabled. */
 #if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
-		goog_notify_fw_status_changed(info->gti, GTI_FW_STATUE_RESET, NULL);
+		goog_notify_fw_status_changed(info->gti, GTI_FW_STATUS_RESET, NULL);
 #else
 #ifdef GLOVE_MODE
 		if ((info->glove_enabled == FEAT_ENABLE &&
