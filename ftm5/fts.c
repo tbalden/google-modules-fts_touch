@@ -5906,7 +5906,7 @@ int fts_set_bus_ref(struct fts_ts_info *info, u16 ref, bool enable)
 
 	if ((enable && (info->bus_refmask & ref)) ||
 	    (!enable && !(info->bus_refmask & ref))) {
-		dev_dbg(info->dev, "%s: reference is unexpectedly set: mask=0x%04X, ref=0x%04X, enable=%d.\n",
+		dev_warn(info->dev, "%s: reference is unexpectedly set: mask=0x%04X, ref=0x%04X, enable=%d.\n",
 			__func__, info->bus_refmask, ref, enable);
 		mutex_unlock(&info->bus_mutex);
 		return ERROR_OP_NOT_ALLOW;
@@ -5941,6 +5941,30 @@ int fts_set_bus_ref(struct fts_ts_info *info, u16 ref, bool enable)
 	return result;
 }
 
+static void fts_set_display_state(struct fts_ts_info *info,
+	enum fts_display_state display_state)
+{
+	if (info->display_state == display_state)
+		return;
+
+	switch (display_state) {
+	case FTS_DISPLAY_STATE_OFF:
+		dev_info(info->dev, "%s: screen-off.\n", __func__);
+		fts_set_bus_ref(info, FTS_BUS_REF_SCREEN_ON, false);
+		break;
+	case FTS_DISPLAY_STATE_ON:
+		dev_info(info->dev, "%s: screen-on.\n", __func__);
+		fts_set_bus_ref(info, FTS_BUS_REF_SCREEN_ON, true);
+		break;
+	default:
+		dev_err(info->dev,
+			"%s: Unexpected value(0x%X) of display state parameter.\n",
+			__func__, display_state);
+		return;
+	}
+	info->display_state = display_state;
+}
+
 struct drm_connector *get_bridge_connector(struct drm_bridge *bridge)
 {
 	struct drm_connector *connector;
@@ -5972,7 +5996,7 @@ static void panel_bridge_enable(struct drm_bridge *bridge)
 
 	dev_dbg(info->dev, "%s\n", __func__);
 	if (!info->is_panel_lp_mode)
-		fts_set_bus_ref(info, FTS_BUS_REF_SCREEN_ON, true);
+		fts_set_display_state(info, FTS_DISPLAY_STATE_ON);
 }
 
 static void panel_bridge_disable(struct drm_bridge *bridge)
@@ -5980,6 +6004,7 @@ static void panel_bridge_disable(struct drm_bridge *bridge)
 	struct fts_ts_info *info =
 			container_of(bridge, struct fts_ts_info, panel_bridge);
 
+	dev_dbg(info->dev, "%s\n", __func__);
 	if (bridge->encoder && bridge->encoder->crtc) {
 		const struct drm_crtc_state *crtc_state = bridge->encoder->crtc->state;
 
@@ -5987,8 +6012,7 @@ static void panel_bridge_disable(struct drm_bridge *bridge)
 			return;
 	}
 
-	dev_dbg(info->dev, "%s\n", __func__);
-	fts_set_bus_ref(info, FTS_BUS_REF_SCREEN_ON, false);
+	fts_set_display_state(info, FTS_DISPLAY_STATE_OFF);
 }
 
 static void panel_bridge_mode_set(struct drm_bridge *bridge,
@@ -5997,6 +6021,7 @@ static void panel_bridge_mode_set(struct drm_bridge *bridge,
 {
 	struct fts_ts_info *info =
 			container_of(bridge, struct fts_ts_info, panel_bridge);
+	bool panel_is_lp_mode;
 
 	dev_dbg(info->dev, "%s\n", __func__);
 
@@ -6005,8 +6030,14 @@ static void panel_bridge_mode_set(struct drm_bridge *bridge,
 		info->connector = get_bridge_connector(bridge);
 	}
 
-	info->is_panel_lp_mode = bridge_is_lp_mode(info->connector);
-	fts_set_bus_ref(info, FTS_BUS_REF_SCREEN_ON, !info->is_panel_lp_mode);
+	panel_is_lp_mode = bridge_is_lp_mode(info->connector);
+	if (info->is_panel_lp_mode != panel_is_lp_mode) {
+		dev_info(info->dev, "panel_is_lp_mode changed from %d to %d.\n",
+			info->is_panel_lp_mode, panel_is_lp_mode);
+		info->is_panel_lp_mode = panel_is_lp_mode;
+		fts_set_display_state(info, info->is_panel_lp_mode ?
+			FTS_DISPLAY_STATE_OFF : FTS_DISPLAY_STATE_ON);
+	}
 
 #ifdef DYNAMIC_REFRESH_RATE
 	if (adjusted_mode &&
@@ -7125,6 +7156,8 @@ static int fts_pm_suspend(struct device *dev)
 	if (info->resume_bit == 1 || info->sensor_sleep == false) {
 		dev_warn(info->dev, "%s: can't suspend because touch bus is in use!\n",
 			__func__);
+		dev_warn(info->dev, "%s: display_state: %d, sensor_sleep: %d\n",
+			__func__, info->display_state, info->sensor_sleep);
 		if (info->bus_refmask == FTS_BUS_REF_BUGREPORT) {
 			fts_set_bus_ref(info, FTS_BUS_REF_BUGREPORT, false);
 			__pm_relax(info->wakesrc);
