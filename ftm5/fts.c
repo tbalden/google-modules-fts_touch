@@ -2495,6 +2495,11 @@ static int gti_default_handler(void *private_data, enum gti_cmd_type cmd_type,
 		/* Heatmap is always enabled. */
 		ret = 0;
 		break;
+	case GTI_CMD_GET_CONTEXT_DRIVER:
+	case GTI_CMD_GET_CONTEXT_STYLUS:
+		/* There is no context from this driver. */
+		ret = 0;
+		break;
 	default:
 		ret = -ESRCH;
 		break;
@@ -3257,6 +3262,9 @@ static bool fts_status_event_handler(struct fts_ts_info *info, unsigned
 				     char *event)
 {
 	u8 grid_touch_status;
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+	struct gti_fw_status_data data = {0};
+#endif
 
 	switch (event[1]) {
 	case EVT_TYPE_STATUS_ECHO:
@@ -3403,6 +3411,9 @@ static bool fts_status_event_handler(struct fts_ts_info *info, unsigned
 				" raw frame = %02X %02X %02X %02X %02X %02X\n",
 				__func__, event[2], event[3], event[4],
 				event[5], event[6], event[7]);
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+			goog_notify_fw_status_changed(info->gti, GTI_FW_STATUS_WATER_ENTER, NULL);
+#endif
 			break;
 
 		case 0x01:
@@ -3410,6 +3421,9 @@ static bool fts_status_event_handler(struct fts_ts_info *info, unsigned
 				" raw frame = %02X %02X %02X %02X %02X %02X\n",
 				__func__, event[2], event[3], event[4],
 				event[5], event[6], event[7]);
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+			goog_notify_fw_status_changed(info->gti, GTI_FW_STATUS_WATER_ENTER, NULL);
+#endif
 			break;
 
 		case 0x02:
@@ -3417,6 +3431,9 @@ static bool fts_status_event_handler(struct fts_ts_info *info, unsigned
 				" raw frame = %02X %02X %02X %02X %02X %02X\n",
 				__func__, event[2], event[3], event[4],
 				event[5], event[6], event[7]);
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+			goog_notify_fw_status_changed(info->gti, GTI_FW_STATUS_WATER_ENTER, NULL);
+#endif
 			break;
 
 		case 0x03:
@@ -3424,6 +3441,9 @@ static bool fts_status_event_handler(struct fts_ts_info *info, unsigned
 				" raw frame = %02X %02X %02X %02X %02X %02X\n",
 				__func__, event[2], event[3], event[4],
 				event[5], event[6], event[7]);
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+			goog_notify_fw_status_changed(info->gti, GTI_FW_STATUS_WATER_EXIT, NULL);
+#endif
 			break;
 
 		case 0x04:
@@ -3431,6 +3451,9 @@ static bool fts_status_event_handler(struct fts_ts_info *info, unsigned
 				" raw frame = %02X %02X %02X %02X %02X %02X\n",
 				__func__, event[2], event[3], event[4],
 				event[5], event[6], event[7]);
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+			goog_notify_fw_status_changed(info->gti, GTI_FW_STATUS_WATER_EXIT, NULL);
+#endif
 			break;
 
 		case 0x05:
@@ -3438,6 +3461,9 @@ static bool fts_status_event_handler(struct fts_ts_info *info, unsigned
 				" raw frame = %02X %02X %02X %02X %02X %02X\n",
 				__func__, event[2], event[3], event[4],
 				event[5], event[6], event[7]);
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+			goog_notify_fw_status_changed(info->gti, GTI_FW_STATUS_WATER_EXIT, NULL);
+#endif
 			break;
 
 		default:
@@ -3473,6 +3499,10 @@ static bool fts_status_event_handler(struct fts_ts_info *info, unsigned
 				__func__, event[2], event[3], event[4],
 				event[5], event[6], event[7]);
 		}
+#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+		data.noise_level = event[2] & 0x0F;
+		goog_notify_fw_status_changed(info->gti, GTI_FW_STATUS_NOISE_MODE, &data);
+#endif
 		break;
 
 	case EVT_TYPE_STATUS_STIMPAD:
