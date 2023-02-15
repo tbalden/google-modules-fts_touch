@@ -2885,6 +2885,54 @@ static int set_report_rate(void *private_data, struct gti_report_rate_cmd *cmd)
 
 	return ret;
 }
+
+static int get_irq_mode(void *private_data, struct gti_irq_cmd *cmd)
+{
+	struct fts_ts_info *info = private_data;
+
+	cmd->setting = info->irq_enabled ? GTI_IRQ_MODE_ENABLE : GTI_IRQ_MODE_DISABLE;
+
+	return 0;
+}
+
+static int set_irq_mode(void *private_data, struct gti_irq_cmd *cmd)
+{
+	struct fts_ts_info *info = private_data;
+
+	return fts_enableInterrupt(info, cmd->setting == GTI_IRQ_MODE_ENABLE);
+}
+
+static int set_reset(void *private_data, struct gti_reset_cmd *cmd)
+{
+	struct fts_ts_info *info = private_data;
+
+	/* Reset then sense on. */
+	if (cmd->setting == GTI_RESET_MODE_HW || cmd->setting == GTI_RESET_MODE_AUTO)
+		return cleanUp(info, true);
+	else
+		return -EOPNOTSUPP;
+}
+
+static int ping(void *private_data, struct gti_ping_cmd *cmd)
+{
+	struct fts_ts_info *info = private_data;
+	u16 chip_id;
+	int ret = 0;
+
+	ret = fts_writeReadU8UX(info, FTS_CMD_HW_REG_R, ADDR_SIZE_HW_REG,
+			ADDR_DCHIP_ID, (u8 *)&chip_id, 2, DUMMY_HW_REG);
+	if (ret) {
+		dev_err(info->dev, "Failed to read chip ID, ret = %#x.\n", ret);
+		return ret;
+	}
+
+	if (chip_id != ((info->board->dchip_id[1] << 8) | info->board->dchip_id[0])) {
+		dev_err(info->dev, "Wrong chip ID\n");
+		return -EINVAL;
+	}
+
+	return 0;
+}
 #endif
 
 /**
@@ -5788,6 +5836,10 @@ static int fts_probe(struct spi_device *client)
 	options->set_palm_mode = set_palm_mode;
 	options->get_palm_mode = get_palm_mode;
 	options->set_report_rate = set_report_rate;
+	options->get_irq_mode = get_irq_mode;
+	options->set_irq_mode = set_irq_mode;
+	options->reset = set_reset;
+	options->ping = ping;
 
 	info->gti = goog_touch_interface_probe(
 		info, info->dev, info->input_dev, gti_default_handler, options);
