@@ -2853,6 +2853,41 @@ static int get_palm_mode(void *private_data, struct gti_palm_cmd *cmd)
 	return 0;
 }
 
+static int set_coord_filter_enabled(void *private_data, struct gti_coord_filter_cmd *cmd)
+{
+	struct fts_ts_info *info = private_data;
+	u8 write[3];
+	u8 disable;
+	int ret;
+
+	disable = cmd->setting == GTI_COORD_FILTER_DISABLE ? 1 : 0;
+
+	write[0] = (u8) FTS_CMD_CUSTOM_W;
+	write[1] = (u8) CUSTOM_CMD_DISABLE_COORD_FILTER;
+	write[2] = disable;
+
+	ret = fts_write(info, write, sizeof(write));
+	if (ret) {
+		dev_err(info->dev, "Failed to %s firmware coordinate filter.\n",
+			disable ? "disable" : "enable");
+	} else {
+		info->coord_filter_disabled = disable;
+		dev_info(info->dev, "%s firmware coordinate filter.\n",
+			info->coord_filter_disabled ? "Disable" : "Enable");
+	}
+
+	return ret;
+}
+
+static int get_coord_filter_enabled(void *private_data, struct gti_coord_filter_cmd *cmd)
+{
+	struct fts_ts_info *info = private_data;
+
+	cmd->setting = info->coord_filter_disabled ?
+			GTI_COORD_FILTER_DISABLE : GTI_COORD_FILTER_ENABLE;
+	return 0;
+}
+
 /**
  * Set the custom touch report rate.
  * buf[0]: FTS_CMD_CUSTOM_W
@@ -5835,6 +5870,8 @@ static int fts_probe(struct spi_device *client)
 	options->get_grip_mode = get_grip_mode;
 	options->set_palm_mode = set_palm_mode;
 	options->get_palm_mode = get_palm_mode;
+	options->set_coord_filter_enabled = set_coord_filter_enabled;
+	options->get_coord_filter_enabled = get_coord_filter_enabled;
 	options->set_report_rate = set_report_rate;
 	options->get_irq_mode = get_irq_mode;
 	options->set_irq_mode = set_irq_mode;

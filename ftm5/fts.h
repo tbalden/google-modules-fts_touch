@@ -761,6 +761,8 @@ struct fts_ts_info {
 	int grip_enabled;	/* Grip mode */
 	int palm_enabled;	/* Palm mode */
 
+	bool coord_filter_disabled;
+
 #if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
 	struct goog_touch_interface *gti;
 #else
