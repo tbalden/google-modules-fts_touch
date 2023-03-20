@@ -5022,12 +5022,12 @@ static void report_cancel_event(struct fts_ts_info *info)
 	mutex_lock(&info->input_report_mutex);
 #endif
 
-	/* Finger down on UDFPS area. */
+	/* Finger down. */
 	input_mt_slot(info->input_dev, 0);
 	input_report_key(info->input_dev, BTN_TOUCH, 1);
 	input_mt_report_slot_state(info->input_dev, MT_TOOL_FINGER, 1);
-	input_report_abs(info->input_dev, ABS_MT_POSITION_X, info->board->udfps_x);
-	input_report_abs(info->input_dev, ABS_MT_POSITION_Y, info->board->udfps_y);
+	input_report_abs(info->input_dev, ABS_MT_POSITION_X, 0);
+	input_report_abs(info->input_dev, ABS_MT_POSITION_Y, 0);
 	input_report_abs(info->input_dev, ABS_MT_TOUCH_MAJOR, 200);
 	input_report_abs(info->input_dev, ABS_MT_TOUCH_MINOR, 200);
 #ifndef SKIP_PRESSURE
@@ -5127,7 +5127,7 @@ static void fts_resume(struct fts_ts_info *info)
 	if (!info->sensor_sleep) return;
 
 	fts_pinctrl_setup(info, true);
-	if (info->board->udfps_x != 0 && info->board->udfps_y != 0)
+	if (goog_get_lptw_triggered(info->gti) == true)
 		check_finger_status(info);
 	fts_system_reset(info);
 	info->resume_bit = 1;
@@ -5523,14 +5523,6 @@ static int parse_dt(struct device *dev, struct fts_hw_platform_data *bdata)
 	}
 	bdata->x_axis_max = coords[0];
 	bdata->y_axis_max = coords[1];
-
-	if (of_property_read_u32_array(np, "st,udfps-coords", coords, 2)) {
-		dev_err(dev, "st,udfps-coords not found\n");
-		coords[0] = 0;
-		coords[1] = 0;
-	}
-	bdata->udfps_x = coords[0];
-	bdata->udfps_y = coords[1];
 
 	bdata->sensor_inverted_x = 0;
 	if (of_property_read_bool(np, "st,sensor_inverted_x"))
