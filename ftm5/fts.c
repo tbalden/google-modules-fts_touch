@@ -2908,7 +2908,7 @@ static int set_report_rate(void *private_data, struct gti_report_rate_cmd *cmd)
 
 	write[0] = (u8) FTS_CMD_CUSTOM_W;
 	write[1] = (u8) CUSTOM_CMD_REPORT_RATE;
-	write[2] = 1;
+	write[2] = (goog_get_max_touch_report_rate(info->gti) == cmd->setting)? 0 : 1;
 	write[3] = MSEC_PER_SEC * 10 / cmd->setting;
 
 	ret = fts_write(info, write, sizeof(write));
