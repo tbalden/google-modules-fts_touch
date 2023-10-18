@@ -69,6 +69,11 @@
 #include "fts_lib/ftsTime.h"
 #include "fts_lib/ftsTool.h"
 
+
+#ifdef CONFIG_UCI
+#include <linux/inputfilter/sweep2sleep.h>
+#endif
+
 /**
   * Event handler installer helpers
   */
@@ -3144,8 +3149,22 @@ static bool fts_enter_pointer_event_handler(struct fts_ts_info *info, unsigned
 	goog_input_mt_slot(info->gti, info->input_dev, touchId);
 	goog_input_report_key(info->gti, info->input_dev, BTN_TOUCH, touch_condition);
 	goog_input_mt_report_slot_state(info->gti, info->input_dev, tool, 1);
+#ifdef CONFIG_UCI
+                                {
+                                        int x2, y2;
+                                        bool frozen_coords = s2s_freeze_coords(&x2,&y2,x,y);
+//                                	pr_info("%s uci UCI ...\n",__func__);
+                                        if (frozen_coords) {
+						goog_input_report_abs(info->gti, info->input_dev, ABS_MT_POSITION_X, x2);
+						goog_input_report_abs(info->gti, info->input_dev, ABS_MT_POSITION_Y, y2);
+                                        } else {
+#endif
 	goog_input_report_abs(info->gti, info->input_dev, ABS_MT_POSITION_X, x);
 	goog_input_report_abs(info->gti, info->input_dev, ABS_MT_POSITION_Y, y);
+#ifdef CONFIG_UCI
+                                        }
+                                }
+#endif
 	goog_input_report_abs(info->gti, info->input_dev, ABS_MT_TOUCH_MAJOR, major);
 	goog_input_report_abs(info->gti, info->input_dev, ABS_MT_TOUCH_MINOR, minor);
 #ifndef SKIP_PRESSURE
@@ -3159,8 +3178,22 @@ static bool fts_enter_pointer_event_handler(struct fts_ts_info *info, unsigned
 	input_mt_slot(info->input_dev, touchId);
 	input_report_key(info->input_dev, BTN_TOUCH, touch_condition);
 	input_mt_report_slot_state(info->input_dev, tool, 1);
+#ifdef CONFIG_UCI
+                                {
+                                        int x2, y2;
+                                        bool frozen_coords = s2s_freeze_coords(&x2,&y2,x,y);
+//                                	pr_info("%s uci UCI ...\n",__func__);
+                                        if (frozen_coords) {
+	                                            input_report_abs(info->input_dev, ABS_MT_POSITION_X, x2);
+	                                            input_report_abs(info->input_dev, ABS_MT_POSITION_Y, y2);
+                                        } else {
+#endif
 	input_report_abs(info->input_dev, ABS_MT_POSITION_X, x);
 	input_report_abs(info->input_dev, ABS_MT_POSITION_Y, y);
+#ifdef CONFIG_UCI
+                                        }
+                                }
+#endif
 	input_report_abs(info->input_dev, ABS_MT_TOUCH_MAJOR, major);
 	input_report_abs(info->input_dev, ABS_MT_TOUCH_MINOR, minor);
 #ifndef SKIP_PRESSURE
@@ -5103,6 +5136,10 @@ static void check_finger_status(struct fts_ts_info *info)
 	}
 }
 
+#ifdef CONFIG_UCI
+extern void uci_screen_state(int state);
+#endif
+
 /**
   * Resume function which perform a system reset, clean all the touches
   * from the linux input system and prepare the ground for enabling the sensing
@@ -5119,6 +5156,10 @@ static void fts_resume(struct fts_ts_info *info)
 	fts_mode_handler(info, 0);
 	fts_enableInterrupt(info, true);
 	info->sensor_sleep = false;
+#ifdef CONFIG_UCI
+	pr_info("%s uci screen state call %d... \n",__func__,0);
+	uci_screen_state(2);
+#endif
 }
 
 /**
@@ -5140,6 +5181,10 @@ static void fts_suspend(struct fts_ts_info *info)
 	clear_touch_flags(info);
 #else
 	release_all_touches(info);
+#endif
+#ifdef CONFIG_UCI
+	pr_info("%s uci screen state call %d... \n",__func__,0);
+	uci_screen_state(0);
 #endif
 }
 
