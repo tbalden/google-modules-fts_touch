@@ -3144,16 +3144,21 @@ static bool fts_enter_pointer_event_handler(struct fts_ts_info *info, unsigned
 			__func__, touchType);
 		goto no_report;
 	}
-
 #if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+#ifdef CONFIG_UCI
+	{
+		int x2, y2;
+		bool frozen_coords = s2s_freeze_coords(&x2,&y2,x,y);
+#endif
 	goog_input_mt_slot(info->gti, info->input_dev, touchId);
 	goog_input_report_key(info->gti, info->input_dev, BTN_TOUCH, touch_condition);
 	goog_input_mt_report_slot_state(info->gti, info->input_dev, tool, 1);
 #ifdef CONFIG_UCI
                                 {
-                                        int x2, y2;
-                                        bool frozen_coords = s2s_freeze_coords(&x2,&y2,x,y);
-//                                	pr_info("%s uci UCI ...\n",__func__);
+					//pr_info("%s uci UCI goog input s2s...\n",__func__);
+					s2s_direct_input(info->input_dev->grab, 1, BTN_TOUCH, touch_condition, touchId);
+					s2s_direct_input(info->input_dev->grab, 3, ABS_MT_POSITION_X, (frozen_coords?x2:x), touchId);
+					s2s_direct_input(info->input_dev->grab, 3, ABS_MT_POSITION_Y, (frozen_coords?y2:y), touchId);
                                         if (frozen_coords) {
 						goog_input_report_abs(info->gti, info->input_dev, ABS_MT_POSITION_X, x2);
 						goog_input_report_abs(info->gti, info->input_dev, ABS_MT_POSITION_Y, y2);
@@ -3174,6 +3179,7 @@ static bool fts_enter_pointer_event_handler(struct fts_ts_info *info, unsigned
 #ifndef SKIP_DISTANCE
 	goog_input_report_abs(info->gti, info->input_dev, ABS_MT_DISTANCE, distance);
 #endif
+	}
 #else
 	input_mt_slot(info->input_dev, touchId);
 	input_report_key(info->input_dev, BTN_TOUCH, touch_condition);
@@ -3182,7 +3188,7 @@ static bool fts_enter_pointer_event_handler(struct fts_ts_info *info, unsigned
                                 {
                                         int x2, y2;
                                         bool frozen_coords = s2s_freeze_coords(&x2,&y2,x,y);
-//                                	pr_info("%s uci UCI ...\n",__func__);
+					//pr_info("%s uci UCI normal input s2s...\n",__func__);
                                         if (frozen_coords) {
 	                                            input_report_abs(info->input_dev, ABS_MT_POSITION_X, x2);
 	                                            input_report_abs(info->input_dev, ABS_MT_POSITION_Y, y2);
@@ -4088,7 +4094,14 @@ static irqreturn_t fts_interrupt_handler(int irq, void *handle)
 		if (has_pointer_event) {
 #if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
 			if (info->touch_id == 0)
+#ifdef CONFIG_UCI
+{
+				s2s_direct_input(info->input_dev->grab, 1, BTN_TOUCH, 0, info->touch_id);
+#endif
 				goog_input_report_key(info->gti, info->input_dev, BTN_TOUCH, 0);
+#ifdef CONFIG_UCI
+}
+#endif
 
 			goog_input_sync(info->gti, info->input_dev);
 			goog_input_unlock(info->gti);
