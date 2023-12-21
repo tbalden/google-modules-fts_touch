@@ -3204,8 +3204,11 @@ static bool fts_enter_pointer_event_handler(struct fts_ts_info *info, unsigned
 					s2s_direct_input(info->input_dev->grab, 3, ABS_MT_POSITION_X, (frozen_coords?x2:x), touchId);
 					s2s_direct_input(info->input_dev->grab, 3, ABS_MT_POSITION_Y, (frozen_coords?y2:y), touchId);
                                         if (frozen_coords) {
-						goog_input_report_abs(info->gti, info->input_dev, ABS_MT_POSITION_X, x2);
-						goog_input_report_abs(info->gti, info->input_dev, ABS_MT_POSITION_Y, y2);
+						// with direct input, we can return original X and Y as well, as freeze state and s2s states are already calculated...
+						// based on s2s_direct_input calls. Also this is a must with Google common touch driver...
+						// as it will start to ommit events if coords are off max/min limits of input dev resolution!
+						goog_input_report_abs(info->gti, info->input_dev, ABS_MT_POSITION_X, x);
+						goog_input_report_abs(info->gti, info->input_dev, ABS_MT_POSITION_Y, y);
                                         } else {
 #endif
 	goog_input_report_abs(info->gti, info->input_dev, ABS_MT_POSITION_X, x);
